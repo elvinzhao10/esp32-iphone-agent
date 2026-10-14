@@ -2,18 +2,23 @@
 
 import os
 import re
+import socket
 import time
 
 import httpx
 
 
 class IPhoneClient:
-    def __init__(self, url: str | None = None, *, transport=None):
+    def __init__(self, url: str | None = None, *, transport=None,
+                 client_id: str | None = None, name: str | None = None):
         url = url or os.environ.get("IPHONE_AGENT_URL", "http://127.0.0.1:8890")
         parsed = httpx.URL(url)
         if parsed.scheme not in ("http", "https") or not parsed.host or parsed.query or parsed.fragment:
             raise ValueError("IPHONE_AGENT_URL must be an HTTP(S) server URL")
-        self.http = httpx.Client(base_url=url.rstrip("/"), timeout=60, transport=transport, trust_env=False)
+        client_id = client_id or os.environ.get("IPHONE_AGENT_CLIENT_ID", f"cli:{socket.gethostname()}")
+        name = name or os.environ.get("IPHONE_AGENT_NAME", "CLI controller")
+        self.http = httpx.Client(base_url=url.rstrip("/"), timeout=60, transport=transport, trust_env=False,
+                                 headers={"X-iPhone-Client": client_id, "X-iPhone-Name": name})
 
     def __enter__(self):
         return self
@@ -36,6 +41,21 @@ class IPhoneClient:
 
     def screenshot(self) -> bytes:
         return self.request("GET", "/api/frame.jpg").content
+
+    def observe(self) -> dict:
+        return self.request("GET", "/api/observation").json()
+
+    def perform(self, action: str, **arguments) -> dict:
+        return self.request("POST", "/api/control/action", {"action": action, "arguments": arguments}).json()
+
+    def claim(self, ttl_s: int = 120) -> dict:
+        return self.request("POST", "/api/control/claim", {"ttl_s": ttl_s}).json()
+
+    def release(self) -> dict:
+        return self.request("POST", "/api/control/release").json()
+
+    def tasks(self) -> list[dict]:
+        return self.request("GET", "/api/tasks").json()
 
     def action(self, name: str, **arguments) -> dict:
         if name not in ("tap", "swipe", "scroll", "type", "key", "home", "back"):

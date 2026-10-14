@@ -1,6 +1,7 @@
 """Real MCP initialize/list/call over stdio, with a disposable HTTP backend."""
 
 import asyncio
+import base64
 import io
 import json
 import sys
@@ -26,7 +27,12 @@ def test_stdio_bridge_delivers_images_and_task_results():
         def log_message(self, *_): pass
 
         def do_GET(self):
-            if self.path == "/api/frame.jpg":
+            if self.path == "/api/observation":
+                data = json.dumps({"control": {"mode": "manual"}, "frame": {
+                    "data": base64.b64encode(image.getvalue()).decode(), "width": 16, "height": 32,
+                }}).encode()
+                mime = "application/json"
+            elif self.path == "/api/frame.jpg":
                 data, mime = image.getvalue(), "image/jpeg"
             elif self.path == f"/api/tasks/{task_id}":
                 data = json.dumps({"id": task_id, "state": "succeeded", "result": "Done"}).encode()
@@ -44,7 +50,10 @@ def test_stdio_bridge_delivers_images_and_task_results():
             self.send_response(202)
             self.send_header("Content-Type", "application/json")
             self.end_headers()
-            self.wfile.write(json.dumps({"id": task_id, "state": "running"}).encode())
+            response = {"id": task_id, "state": "running"}
+            if self.path == "/api/control/action":
+                response = {"ok": True, "frame": {"data": base64.b64encode(image.getvalue()).decode()}}
+            self.wfile.write(json.dumps(response).encode())
 
     backend = ThreadingHTTPServer(("127.0.0.1", 0), Backend)
     thread = threading.Thread(target=backend.serve_forever, daemon=True)
@@ -64,6 +73,12 @@ def test_stdio_bridge_delivers_images_and_task_results():
             assert not shot.isError
             assert shot.content[0].type == "image"
             assert shot.content[0].mimeType == "image/jpeg"
+            observed = await session.call_tool("iphone_observe", {})
+            assert not observed.isError
+            assert any(part.type == "image" for part in observed.content)
+            tapped = await session.call_tool("iphone_tap", {"x": .5, "y": .4})
+            assert not tapped.isError
+            assert any(part.type == "image" for part in tapped.content)
             delegated = await session.call_tool("delegate_task", {"goal": "Open Settings"})
             assert not delegated.isError
             assert task_id in delegated.content[0].text
@@ -74,7 +89,10 @@ def test_stdio_bridge_delivers_images_and_task_results():
 
     try:
         asyncio.run(scenario())
-        assert seen == [("/api/tasks", {"goal": "Open Settings", "max_steps": 40, "timeout_s": 600})]
+        assert seen == [
+            ("/api/control/action", {"action": "tap", "arguments": {"x": .5, "y": .4, "precise": True}}),
+            ("/api/tasks", {"goal": "Open Settings", "max_steps": 40, "timeout_s": 600}),
+        ]
     finally:
         backend.shutdown()
         backend.server_close()

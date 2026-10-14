@@ -137,6 +137,7 @@ class Agent:
         self._pointer = (0.0, 0.0)  # last pointer position (screen fractions)
         self._job: asyncio.Task | None = None
         self.run_id = None
+        self.source, self.owner = "dashboard", "Dashboard"
         self.started_at = self.finished_at = None
         self._history: dict[str, dict] = {}
         self.actor_mode = os.environ.get("ACTOR_MODE", "text")
@@ -144,12 +145,14 @@ class Agent:
             raise ValueError("ACTOR_MODE must be text or tools")
         self.verify_completion = os.environ.get("VERIFY_COMPLETION", "1") == "1"
         self._completion_retries = 0
+        self.rounds = 0
 
     @property
     def running(self) -> bool:
         return self._job is not None and not self._job.done()
 
-    def start(self, task: str, max_steps: int | None = None, timeout_s: float = 600) -> str:
+    def start(self, task: str, max_steps: int | None = None, timeout_s: float = 600,
+              *, source: str = "dashboard", owner: str = "Dashboard") -> str:
         if self.running:
             raise RuntimeError("agent already running")
         if not task.strip():
@@ -158,7 +161,8 @@ class Agent:
             raise RuntimeError("controller not connected")
         if not self.phone.calibrated:
             raise RuntimeError("pointer not calibrated")
-        if not self.actor.model or not self.planner.model:
+        if (not self.actor.model or not self.planner.model
+                or not getattr(self.actor, "ready", True) or not getattr(self.planner, "ready", True)):
             raise RuntimeError("configure the actor and planner models first")
         if not self.screen.live:
             raise RuntimeError("no phone screen: start Screen Mirroring first")
@@ -166,9 +170,11 @@ class Agent:
         if not isinstance(max_steps, int) or not 1 <= max_steps <= 120 or not 1 <= timeout_s <= 3600:
             raise RuntimeError("invalid task limits")
         self._archive()
+        self.source, self.owner = source, owner
         self.run_id = uuid.uuid4().hex
         self.started_at, self.finished_at = time.time(), None
         self._completion_retries = 0
+        self.rounds = 0
         self.max_steps = max_steps
         self.task, self.plan, self.steps, self.shots = task, "", [], {}
         self._pointer = (0.0, 0.0)
@@ -196,6 +202,7 @@ class Agent:
             "done": "succeeded", "fail": "failed", "error": "failed", "stopped": "cancelled",
         }.get(last.get("action"), "cancelled" if self.run_id else "idle")
         return {"id": self.run_id, "state": state, "goal": self.task, "plan": self.plan,
+                "source": self.source, "owner": self.owner, "max_steps": self.max_steps, "rounds": self.rounds,
                 "started_at": self.started_at, "finished_at": self.finished_at,
                 "result": last.get("answer"), "error": last.get("reason"), "steps": deepcopy(self.steps)}
 
@@ -256,6 +263,7 @@ class Agent:
         try:
             await self._replan()
             for _ in range(self.max_steps):
+                self.rounds = _ + 1
                 try:
                     if await self._step():
                         return

@@ -156,3 +156,88 @@ The Pi runs no local vision model. Runtime RAM figures for unrelated frameworks
 are not measurements of this stack; AirPlay/video decoding and screenshot storage
 still contribute to total memory. MCP dependencies are optional and belong on the
 controller unless you specifically need them on the Pi.
+
+## Control-room dashboard and ownership
+
+The dashboard now reports the **server's actual control state**, independently of
+which workflow panel you are browsing:
+
+| State | Who acts | Dashboard behavior |
+|---|---|---|
+| Manual | A dashboard user, or nobody yet | Live taps, swipes, typing, calibration |
+| External agent | A CLI/MCP control session | Observe only; shows the controller and lease expiry |
+| Delegated task | The local vision agent executing an external agent's goal | Observe progress/result; stop or take over |
+| Local agent | The local vision agent executing a dashboard goal | Shows model readiness, limits, plan, progress and result |
+
+The workflow cards select what you want to do; they do not pretend to change
+ownership. Input is locked in both the UI and API when another controller owns the
+phone. **Take control** explicitly cancels a running task, releases the pointer,
+and revokes the previous session. **Emergency stop** remains available to every
+trusted controller. A revoked session must explicitly claim again; it cannot
+silently resume sending actions after the user takes over.
+
+Direct-control sessions last 120 seconds without activity (explicit claims allow
+15–300 seconds), and successful control requests renew them. Reads do not claim
+or renew control. Call `release_control` or `iphone-agent release` when done.
+The activity feed shows ownership changes and direct actions; task history lets
+you inspect recent results. Task/session metadata remains in memory and is reset
+on server restart. These leases coordinate trusted users; they are **not** a new
+authentication boundary. Tailnet access restrictions still matter.
+
+Each MCP bridge process generates a distinct client ID. CLI invocations on one
+computer share an identity by default so sequences work across shell invocations.
+For independent CLI agents, set a distinct `IPHONE_AGENT_CLIENT_ID` per agent and
+optionally `IPHONE_AGENT_NAME` for its dashboard label. Raw API clients should send
+stable `X-iPhone-Client` and `X-iPhone-Name` headers. Dashboard requests also send
+`X-iPhone-Source: dashboard`; other clients are considered external. These labels
+are client supplied, not verified identities.
+
+Additional HTTP endpoints:
+
+- `GET /api/observation`: control state plus JPEG, dimensions and frame timestamp.
+- `POST /api/control/action`: `{ "action": "tap", "arguments": {"x":0.5,"y":0.4} }`;
+  holds the gesture lock, executes the action, waits briefly, and returns the
+  resulting JPEG in the same response. Keyboard and gesture arguments match the
+  existing API. Remote actions require screen mirroring.
+- `POST /api/control/claim`: optional `{ "ttl_s": 120 }`.
+- `POST /api/control/release`: release your session.
+- `POST /api/control/takeover`: explicit stop/revoke/takeover.
+- `GET /api/tasks`: recent task summaries, newest first.
+
+Direct taps now default to `precise: true`, using screenshot-based pointer
+correction before clicking. Set it false on the HTTP/MCP tap tool to trade
+accuracy for lower latency. Swipes and edge gestures can still require tuning.
+
+The live preview fetches at most two frames per second while visible and pauses
+frame requests in hidden tabs. Task/ownership status continues at a lower rate.
+
+## A closer Codex workflow
+
+Codex supports stdio MCP servers. Register the installed bridge with its absolute
+path (substitute your path and Pi Tailscale IP):
+
+```sh
+codex mcp add iphone --env IPHONE_AGENT_NAME=Codex -- \
+  /absolute/path/to/repo/server/.venv/bin/iphone-agent \
+  --url http://100.x.y.z:8890 mcp
+codex mcp list
+```
+
+Start a new Codex chat or reload its MCP connection after registration. This is a
+custom MCP integration, not a replacement for the Codex app's built-in native
+computer-use surface. See the [official Codex MCP documentation](https://learn.chatgpt.com/docs/extend/mcp?surface=cli).
+
+For direct use, ask Codex to:
+
+1. Call `iphone_observe` for the live image, dimensions, and current owner.
+2. Use the action tools. They now return **the resulting screenshot in the same
+   tool response**, saving a separate screenshot call after each action.
+3. Check that result before choosing the next action; do not execute guesses based
+   on a stale screen. Stop if ownership changes or a tool reports a conflict.
+4. Call `release_control` when finished.
+
+For delegation, call `delegate_task`, retain its ID, and poll `task_status`.
+`claim_control` is available for an explicit session or renewal. Observation and
+status tools are marked read-only in MCP metadata. All 16 tools use the same
+Tailscale-bound API. No additional model API key is needed for Codex's direct
+control; delegated/local tasks still require the Pi's model configuration.

@@ -1,78 +1,100 @@
 """Controller-side MCP stdio bridge; forwards to the Pi over its existing HTTP API."""
 
+import base64
+import json
+import os
+import uuid
+
 from .client import IPhoneClient
 
 
 def create_server(url: str | None = None):
     try:
         from mcp.server.fastmcp import FastMCP, Image
+        from mcp.types import TextContent, ToolAnnotations
     except ImportError as e:
         raise RuntimeError('Install MCP support on the controlling computer: pip install -e "server[mcp]"') from e
 
+    client_id = os.environ.get("IPHONE_AGENT_CLIENT_ID") or f"mcp:{uuid.uuid4().hex}"
+    name = os.environ.get("IPHONE_AGENT_NAME", "MCP agent")
+
+    def connect():
+        return IPhoneClient(url, client_id=client_id, name=name)
+
+    def with_image(result):
+        frame = result.pop("frame", None)
+        content = [TextContent(type="text", text=json.dumps(result))]
+        if frame:
+            content[0].text = json.dumps({**result, "screen": {k: v for k, v in frame.items() if k != "data"}})
+            content.append(Image(data=base64.b64decode(frame["data"]), format="jpeg").to_image_content())
+        return content
+
     mcp = FastMCP("iPhone Agent", instructions=(
-        "Observe with iphone_screenshot before acting. Coordinates are fractions 0–1 of the image. "
+        "Start with iphone_observe. Action tools return the resulting screenshot; use that before the next action. "
+        "Coordinates are fractions 0–1 of the image. Use release_control when finished. "
+        "On an ownership conflict or dashboard takeover, stop and ask the user before claiming control again. "
         "Use either direct controls or delegate_task, not both simultaneously. "
         "Poll task_status until terminal. stop_task is the emergency stop. "
         "Only act on the user's requested device task."))
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     def iphone_status() -> dict:
         """Read controller, screen, calibration, and current task readiness."""
-        with IPhoneClient(url) as client:
+        with connect() as client:
             return client.status()
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     def iphone_screenshot() -> Image:
         """Get the current iPhone screenshot as an image, not a file path."""
-        with IPhoneClient(url) as client:
+        with connect() as client:
             return Image(data=client.screenshot(), format="jpeg")
 
     @mcp.tool()
-    def iphone_tap(x: float, y: float) -> dict:
+    def iphone_tap(x: float, y: float, precise: bool = True) -> list:
         """Tap a visible target at normalized coordinates 0–1. Observe again afterward."""
-        with IPhoneClient(url) as client:
-            return client.action("tap", x=x, y=y)
+        with connect() as client:
+            return with_image(client.perform("tap", x=x, y=y, precise=precise))
 
     @mcp.tool()
-    def iphone_swipe(x1: float, y1: float, x2: float, y2: float) -> dict:
+    def iphone_swipe(x1: float, y1: float, x2: float, y2: float) -> list:
         """Swipe from one normalized screen point to another; inspect the resulting screenshot."""
-        with IPhoneClient(url) as client:
-            return client.action("swipe", x1=x1, y1=y1, x2=x2, y2=y2)
+        with connect() as client:
+            return with_image(client.perform("swipe", x1=x1, y1=y1, x2=x2, y2=y2))
 
     @mcp.tool()
-    def iphone_scroll(x: float, y: float, lines: int) -> dict:
+    def iphone_scroll(x: float, y: float, lines: int) -> list:
         """Scroll at a screen fraction x,y; lines must be between -100 and 100."""
-        with IPhoneClient(url) as client:
-            return client.action("scroll", x=x, y=y, lines=lines)
+        with connect() as client:
+            return with_image(client.perform("scroll", x=x, y=y, lines=lines))
 
     @mcp.tool()
-    def iphone_type(text: str) -> dict:
+    def iphone_type(text: str) -> list:
         """Type printable ASCII into the visibly focused field. No newlines or control characters."""
-        with IPhoneClient(url) as client:
-            return client.action("type", text=text)
+        with connect() as client:
+            return with_image(client.perform("type", text=text))
 
     @mcp.tool()
-    def iphone_key(combo: str) -> dict:
+    def iphone_key(combo: str) -> list:
         """Press a keyboard combination, e.g. enter, backspace, or cmd+a."""
-        with IPhoneClient(url) as client:
-            return client.action("key", text=combo)
+        with connect() as client:
+            return with_image(client.perform("key", text=combo))
 
     @mcp.tool()
-    def iphone_home() -> dict:
+    def iphone_home() -> list:
         """Swipe to the iPhone home screen."""
-        with IPhoneClient(url) as client:
-            return client.action("home")
+        with connect() as client:
+            return with_image(client.perform("home"))
 
     @mcp.tool()
-    def iphone_back() -> dict:
+    def iphone_back() -> list:
         """Perform the iPhone back gesture."""
-        with IPhoneClient(url) as client:
-            return client.action("back")
+        with connect() as client:
+            return with_image(client.perform("back"))
 
     @mcp.tool()
     def iphone_calibrate(x: float | None = None, y: float | None = None) -> dict:
         """Start auto-calibration. If auto=false, have the user locate the pointer and supply x,y to finish."""
-        with IPhoneClient(url) as client:
+        with connect() as client:
             return client.calibrate(x, y)
 
     @mcp.tool()
@@ -81,20 +103,38 @@ def create_server(url: str | None = None):
 
         Requires controller, mirroring, calibration, and model configuration. Poll task_status for results.
         """
-        with IPhoneClient(url) as client:
+        with connect() as client:
             return client.delegate(goal, max_steps, timeout_s)
 
-    @mcp.tool()
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
     def task_status(task_id: str) -> dict:
         """Read delegated task state, plan, action history, result, and error by task id."""
-        with IPhoneClient(url) as client:
+        with connect() as client:
             return client.task_status(task_id)
 
     @mcp.tool()
     def stop_task(task_id: str | None = None) -> dict:
         """Cancel a task and release the pointer. Omit task_id for an emergency stop of the current agent."""
-        with IPhoneClient(url) as client:
+        with connect() as client:
             return client.stop(task_id)
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def iphone_observe() -> list:
+        """Get control ownership and the live screenshot together. Reading never takes control."""
+        with connect() as client:
+            return with_image(client.observe())
+
+    @mcp.tool()
+    def claim_control(ttl_s: int = 120) -> dict:
+        """Explicitly claim or renew a control session. Ask the user first after a takeover/conflict."""
+        with connect() as client:
+            return client.claim(ttl_s)
+
+    @mcp.tool()
+    def release_control() -> dict:
+        """Release this agent's phone session so the dashboard or another agent can take control."""
+        with connect() as client:
+            return client.release()
 
     return mcp
 

@@ -1,81 +1,262 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ESP32 iPhone Agent</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<main>
-  <!-- 1. the real phone -->
-  <section class="col phone">
-    <div class="screen">
-      <img id="live" alt="">
-      <div class="hint" id="hint" data-i18n="waiting"></div>
-    </div>
-    <p class="caption" id="caption" data-i18n="liveCaption"></p>
-    <button class="estop" id="estop" data-i18n="estop"></button>
-    <p class="caption" data-i18n="estopHint"></p>
-    <details class="manual">
-      <summary data-i18n="manual"></summary>
-      <div class="row"><button data-post="/api/home" data-i18n="home"></button><button data-post="/api/back" data-i18n="back"></button><button id="cal" data-i18n="calibrate"></button></div>
-      <div class="row"><input id="text" data-i18n-ph="typePh"><button id="type" data-i18n="type"></button></div>
-      <div class="row"><input id="key" data-i18n-ph="keyPh"><button id="press" data-i18n="press"></button></div>
-    </details>
-  </section>
-
-  <!-- 2. live log, both languages -->
-  <section class="col log">
-    <header class="colhead"><h2 data-i18n="log"></h2><span class="live-dot" id="live-dot"></span></header>
-    <ol id="log"></ol>
-  </section>
-
-  <!-- 3. task, progress and the step wall -->
-  <section class="col work">
-    <header class="top">
-      <div><h1>ESP32 iPhone Agent</h1><p data-i18n="tagline"></p></div>
-      <div class="models">
-        <div><span data-i18n="decision"></span><b id="m-planner"></b><small id="m-planner-s"></small></div>
-        <div><span data-i18n="executor"></span><b id="m-actor"></b><small id="m-actor-s"></small></div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iPhone Agent · Control room</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="appbar">
+      <a class="brand" href="/"
+        ><span class="brand-icon" aria-hidden="true">⌁</span>
+        <div><strong>iPhone Agent</strong><span>CONTROL ROOM</span></div></a
+      >
+      <div class="connection">
+        <span id="server-dot" class="dot"></span
+        ><span id="server-state">Connecting…</span
+        ><span class="network">Private connection</span>
       </div>
-      <button class="motion" id="motion"></button>
-      <div class="lang" id="lang"><button data-lang="en">EN</button><button data-lang="zh">中文</button></div>
+      <div class="bar-actions">
+        <button class="motion" id="motion"></button>
+        <div class="lang" id="lang">
+          <button data-lang="en">EN</button><button data-lang="zh">中文</button>
+        </div>
+        <button class="danger" id="estop" data-i18n="estop"></button>
+      </div>
     </header>
-
-    <ol class="setup" id="setup">
-      <li data-key="device"><b data-i18n="s1"></b><span data-i18n="s1d"></span></li>
-      <li data-key="screen"><b data-i18n="s2"></b><span data-i18n="s2d"></span></li>
-      <li data-key="calibrated"><b data-i18n="s3"></b><span data-i18n="s3d"></span></li>
-    </ol>
-
-    <div class="task">
-      <textarea id="task" rows="2" data-i18n-ph="taskPh"></textarea>
-      <div class="row">
-        <button class="primary" id="run" data-i18n="start"></button>
-        <button id="stop" data-i18n="stop" hidden></button>
-        <button id="clear" data-i18n="clear" hidden></button>
-        <div class="examples" id="examples"></div>
+    <div class="ownership-bar" aria-live="polite">
+      <div>
+        <span id="mode-badge" class="badge">Manual</span
+        ><strong id="owner">Waiting for status</strong
+        ><span id="ownership-detail"></span>
       </div>
-      <p class="msg" id="msg"></p>
+      <div class="row">
+        <button id="release-control" hidden>Release control</button
+        ><button id="take-control">Take control</button>
+      </div>
     </div>
-
-    <div class="summary" id="summary" hidden>
-      <div><b id="st-state"></b><span data-i18n="status"></span></div>
-      <div><b id="st-steps"></b><span data-i18n="actions"></span></div>
-      <div><b id="st-time"></b><span data-i18n="total"></span></div>
-      <div><b id="st-step"></b><span data-i18n="perAction"></span></div>
-    </div>
-
-    <details class="plan" id="plan" hidden open><summary data-i18n="plan"></summary><ol id="plan-list"></ol></details>
-
-    <div class="wall" id="wall"></div>
-  </section>
-</main>
-
-<dialog id="zoom"><div class="zoombox"><img id="zoom-img" alt=""><div class="overlay" id="zoom-overlay"></div></div><p id="zoom-text"></p></dialog>
-
-<script src="/static/i18n.js"></script>
-<script src="/static/app.js"></script>
-</body>
+    <main>
+      <section class="phone-panel" aria-label="Live iPhone">
+        <div class="section-title">
+          <h2>Live device</h2>
+          <span id="frame-state">Waiting for video</span>
+        </div>
+        <div class="screen">
+          <img id="live" alt="Live mirrored iPhone screen" draggable="false" />
+          <div class="hint" id="hint" data-i18n="waiting"></div>
+          <span id="input-lock" class="input-lock" hidden>View only</span>
+        </div>
+        <p class="caption" id="caption" data-i18n="liveCaption"></p>
+        <div class="phone-toolbar">
+          <button data-post="/api/home" data-i18n="home"></button
+          ><button data-post="/api/back" data-i18n="back"></button
+          ><button id="cal" data-i18n="calibrate"></button>
+        </div>
+        <details class="manual">
+          <summary data-i18n="manual"></summary>
+          <div class="row">
+            <input
+              id="text"
+              aria-label="Text to type"
+              data-i18n-ph="typePh"
+            /><button id="type" data-i18n="type"></button>
+          </div>
+          <div class="row">
+            <input
+              id="key"
+              aria-label="Keyboard shortcut"
+              data-i18n-ph="keyPh"
+            /><button id="press" data-i18n="press"></button>
+          </div>
+        </details>
+      </section>
+      <section class="workspace">
+        <div class="workspace-heading">
+          <div>
+            <span class="eyebrow">ONE PHONE. ONE CONTROLLER.</span>
+            <h1>Your phone, working with you.</h1>
+            <p>Control it yourself, connect your agent, or hand off a task.</p>
+          </div>
+          <span class="live-dot" id="live-dot"></span>
+        </div>
+        <ol class="setup" id="setup">
+          <li data-key="device">
+            <b>Controller</b
+            ><span>Connect the ESP32 to the unlocked iPhone.</span>
+          </li>
+          <li data-key="screen">
+            <b>Screen sharing</b
+            ><span>Choose iPhone Agent in Screen Mirroring.</span>
+          </li>
+          <li data-key="calibrated">
+            <b>Pointer mapping</b
+            ><span>Calibrate before using taps and swipes.</span>
+          </li>
+        </ol>
+        <div class="mode-picker" aria-label="Choose a workflow">
+          <button data-panel="manual" class="mode-card selected">
+            <span class="mode-icon">↖</span><b>Manual control</b
+            ><span>Tap, swipe, and type on the live screen.</span>
+          </button>
+          <button data-panel="external" class="mode-card">
+            <span class="mode-icon">⌘</span><b>External agent</b
+            ><span>Let Codex or another agent use the phone.</span>
+          </button>
+          <button data-panel="local" class="mode-card">
+            <span class="mode-icon">✦</span><b>Local agent</b
+            ><span>Give the vision agent a goal and watch.</span>
+          </button>
+        </div>
+        <section id="panel-manual" class="workflow-panel">
+          <div>
+            <h2>You're in the driver's seat</h2>
+            <p>
+              Click a visible target. Drag to swipe. Scroll over the phone to
+              move a list. Precision taps correct the pointer before clicking.
+            </p>
+          </div>
+          <p class="muted">
+            When another agent owns the device, the screen stays visible and
+            manual input locks. Use Take control to hand it back.
+          </p>
+        </section>
+        <section id="panel-external" class="workflow-panel" hidden>
+          <div>
+            <h2>A phone tool for your stronger agent</h2>
+            <p>
+              Direct control uses your agent's own reasoning. Delegation sends a
+              bounded task to this phone's configured vision agent.
+            </p>
+          </div>
+          <div class="integration">
+            <label for="mcp-command"
+              >Connect through MCP on your computer</label
+            >
+            <div class="row">
+              <code id="mcp-command"></code
+              ><button id="copy-mcp">Copy command</button>
+            </div>
+            <small
+              >Replace the executable path with your installed iphone-agent
+              command. The bridge returns a new screenshot with each
+              action.</small
+            >
+          </div>
+          <div class="external-meta">
+            <span id="external-owner">No external controller connected</span
+            ><span id="lease-time"></span>
+          </div>
+        </section>
+        <section id="panel-local" class="workflow-panel" hidden>
+          <div class="panel-heading">
+            <div>
+              <h2>Delegate the steps. Keep the oversight.</h2>
+              <p>
+                The planner makes a plan; the actor operates the phone and
+                checks the result.
+              </p>
+            </div>
+            <span id="model-health" class="badge">Checking models</span>
+          </div>
+          <div class="models">
+            <div>
+              <span data-i18n="decision"></span><b id="m-planner"></b
+              ><small id="m-planner-s"></small>
+            </div>
+            <div>
+              <span data-i18n="executor"></span><b id="m-actor"></b
+              ><small id="m-actor-s"></small>
+            </div>
+            <div>
+              <span>Action format</span><b id="actor-format"></b
+              ><small id="verification-state"></small>
+            </div>
+          </div>
+          <p id="model-warning" class="notice" hidden></p>
+          <div class="task">
+            <label for="task">What should the phone do?</label
+            ><textarea id="task" rows="3" data-i18n-ph="taskPh"></textarea>
+            <div class="task-limits">
+              <label
+                >Step limit<input
+                  id="max-steps"
+                  type="number"
+                  min="1"
+                  max="120"
+                  value="40" /></label
+              ><label
+                >Time limit (seconds)<input
+                  id="task-timeout"
+                  type="number"
+                  min="1"
+                  max="3600"
+                  value="600" /></label
+              ><button class="primary" id="run">Start task</button
+              ><button id="stop" hidden>Stop task</button>
+            </div>
+            <div class="examples" id="examples"></div>
+          </div>
+        </section>
+        <p class="msg" id="msg" role="status" aria-live="polite"></p>
+        <section id="current-task" class="run-panel" hidden>
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow" id="task-origin">CURRENT TASK</span>
+              <h2 id="current-goal"></h2>
+            </div>
+            <button id="show-current" hidden>Back to live task</button
+            ><button id="clear" data-i18n="clear" hidden></button>
+          </div>
+          <div class="summary" id="summary">
+            <div><b id="st-state"></b><span data-i18n="status"></span></div>
+            <div><b id="st-steps"></b><span data-i18n="actions"></span></div>
+            <div><b id="st-time"></b><span data-i18n="total"></span></div>
+            <div><b id="st-step"></b><span data-i18n="perAction"></span></div>
+          </div>
+          <progress
+            id="task-progress"
+            max="40"
+            value="0"
+            aria-label="Task step budget"
+          ></progress>
+          <p id="task-result" class="task-result"></p>
+          <details class="plan" id="plan" hidden open>
+            <summary data-i18n="plan"></summary>
+            <ol id="plan-list"></ol>
+          </details>
+          <details class="trace">
+            <summary>Action screenshots</summary>
+            <div class="wall" id="wall"></div>
+          </details>
+        </section>
+        <section class="activity-panel">
+          <div class="panel-heading">
+            <div class="tabs">
+              <button class="selected" data-feed="activity">Activity</button
+              ><button data-feed="history">Task history</button>
+            </div>
+            <small id="feed-caption"
+              >Live operations and ownership changes</small
+            >
+          </div>
+          <ol id="log" class="activity-feed">
+            <li class="empty">
+              Nothing running. Your device is ready when you are.
+            </li>
+          </ol>
+          <div id="history" hidden></div>
+        </section>
+      </section>
+    </main>
+    <dialog id="zoom">
+      <div class="zoombox">
+        <img id="zoom-img" alt="Task screenshot" />
+        <div class="overlay" id="zoom-overlay"></div>
+      </div>
+      <p id="zoom-text"></p>
+    </dialog>
+    <script src="/static/i18n.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
 </html>

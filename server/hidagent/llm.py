@@ -13,10 +13,15 @@ class LLM:
     def __init__(self, base_url: str, model: str, api_key: str = "", extra: dict | None = None,
                  token_param: str = "auto"):
         self.model, self.extra = model, extra or {}
+        self.authenticated = bool(api_key)
         # "auto": send max_tokens; switch for good if the server asks for max_completion_tokens (newer OpenAI models)
         self.token_param, self._auto = (token_param, False) if token_param in TOKEN_PARAMS else ("max_tokens", True)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._http = httpx.AsyncClient(base_url=base_url.rstrip("/"), headers=headers, timeout=120)
+
+    @property
+    def ready(self) -> bool:
+        return bool(self.model) and (self._http.base_url.host != "api.openai.com" or self.authenticated)
 
     @classmethod
     def from_env(cls, role: str) -> "LLM":

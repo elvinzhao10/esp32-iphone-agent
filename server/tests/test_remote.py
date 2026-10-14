@@ -29,7 +29,7 @@ class Phone:
         self.device = SimpleNamespace(connected=True)
         self.calls = []
 
-    async def tap(self, x, y):
+    async def tap(self, x, y, aim=False):
         self.calls.append((x, y))
 
     async def reset(self):
@@ -47,7 +47,9 @@ def api(monkeypatch, tmp_path):
     monkeypatch.setattr(module, "device", phone.device)
     monkeypatch.setattr(module, "screen", screen)
     monkeypatch.setattr(module, "agent", agent)
+    from hidagent.control import ControlState
     monkeypatch.setattr(module, "control_lock", asyncio.Lock())
+    monkeypatch.setattr(module, "ownership", ControlState())
     return module
 
 
@@ -98,7 +100,7 @@ def test_manual_gesture_excludes_other_controls_and_task_start(api):
     async def scenario():
         entered, release = asyncio.Event(), asyncio.Event()
 
-        async def slow_tap(x, y):
+        async def slow_tap(x, y, aim=False):
             entered.set()
             await release.wait()
 
@@ -240,5 +242,115 @@ def test_immediate_cancel_has_a_terminal_timestamp(api):
         result = api.agent.run_info(task_id)
         assert result["state"] == "cancelled"
         assert result["finished_at"] is not None
+
+    asyncio.run(scenario())
+
+
+def controller(client_id, source="external"):
+    return {"X-iPhone-Client": client_id, "X-iPhone-Name": client_id, "X-iPhone-Source": source}
+
+
+def test_ownership_blocks_other_agents_and_dashboard_takeover_revokes_old_owner(api):
+    async def scenario():
+        a, b = controller("Codex A"), controller("Dashboard B", "dashboard")
+        async with connect(api) as client:
+            assert (await client.post("/api/control/claim", json={}, headers=a)).status_code == 200
+            status = (await client.get("/api/status")).json()
+            assert status["control"]["mode"] == "external"
+            assert status["control"]["owner"] == "Codex A"
+            assert (await client.post("/api/tap", json={"x": .5, "y": .5}, headers=b)).status_code == 409
+            assert (await client.post("/api/control/release", headers=b)).status_code == 409
+            assert (await client.post("/api/control/takeover", headers=b)).status_code == 200
+            assert (await client.get("/api/status")).json()["control"]["mode"] == "manual"
+            assert (await client.post("/api/control/release", headers=b)).status_code == 200
+            # The old agent cannot silently reclaim after the user has taken over.
+            assert (await client.post("/api/tap", json={"x": .5, "y": .5}, headers=a)).status_code == 409
+            assert (await client.post("/api/control/claim", json={}, headers=a)).status_code == 200
+            assert (await client.post("/api/tap", json={"x": .5, "y": .5}, headers=a)).status_code == 200
+            assert api.phone.calls == ["reset", (.5, .5)]
+
+    asyncio.run(scenario())
+
+
+def test_lease_expires_and_reads_do_not_claim_control(api):
+    import time
+
+    async def scenario():
+        async with connect(api) as client:
+            await client.get("/api/status", headers=controller("observer"))
+            assert api.ownership.lease is None
+            await client.post("/api/control/claim", json={}, headers=controller("A"))
+            api.ownership.lease["expires_at"] = time.time() - 1
+            assert (await client.get("/api/status")).json()["control"]["owner"] == "Available"
+            assert (await client.post("/api/control/claim", json={}, headers=controller("B"))).status_code == 200
+
+    asyncio.run(scenario())
+
+
+def test_local_and_delegated_task_modes_are_reported_by_server(api):
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def blocked():
+            entered.set()
+            await release.wait()
+            api.agent._record(action="done", answer="Finished")
+
+        api.agent._run = blocked
+        async with connect(api) as client:
+            for source, expected in (("external", "delegated"), ("dashboard", "local")):
+                entered.clear()
+                release.clear()
+                start = await client.post("/api/tasks", json={"goal": "Test"}, headers=controller(source, source))
+                assert start.status_code == 202
+                await entered.wait()
+                status = (await client.get("/api/status")).json()
+                assert status["control"]["mode"] == expected
+                assert status["control"]["task_id"] == start.json()["id"]
+                release.set()
+                await api.agent.wait_stopped()
+            runs = (await client.get("/api/tasks")).json()
+            assert [run["source"] for run in runs] == ["dashboard", "external"]
+            assert all(run["state"] == "succeeded" for run in runs)
+
+    asyncio.run(scenario())
+
+
+def test_action_returns_post_action_image_with_precision_and_no_blind_execution(api):
+    import base64
+    import io
+
+    from PIL import Image
+
+    image = io.BytesIO()
+    Image.new("RGB", (100, 200), "white").save(image, format="JPEG")
+    api.screen.frame = image.getvalue()
+    calls = []
+
+    async def tap(x, y, aim=False):
+        calls.append((x, y, aim))
+
+    async def settled(**kwargs):
+        calls.append("settled")
+
+    api.phone.tap, api.screen.settled = tap, settled
+
+    async def scenario():
+        async with connect(api) as client:
+            before = (await client.get("/api/observation")).json()
+            assert api.ownership.lease is None
+            response = await client.post("/api/control/action", json={
+                "action": "tap", "arguments": {"x": .5, "y": .4},
+            }, headers=controller("Codex"))
+            assert response.status_code == 200
+            result = response.json()
+            assert result["control"]["mode"] == "external"
+            assert result["frame"]["width"] == 100 and result["frame"]["height"] == 200
+            assert base64.b64decode(result["frame"]["data"]) == image.getvalue()
+            assert before["frame"]["data"] == result["frame"]["data"]
+            assert calls == [(.5, .4, True), "settled"]
+            api.screen.live = False
+            assert (await client.post("/api/control/action", json={"action": "home"})).status_code == 409
+            assert len(calls) == 2
 
     asyncio.run(scenario())

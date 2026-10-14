@@ -25,7 +25,7 @@ def parser() -> argparse.ArgumentParser:
     for name in ("type", "key"):
         action = sub.add_parser(name)
         action.add_argument("text")
-    for name in ("home", "back", "mcp"):
+    for name in ("home", "back", "mcp", "claim", "release", "tasks"):
         sub.add_parser(name)
     calibration = sub.add_parser("calibrate")
     calibration.add_argument("--pointer", nargs=2, type=float, metavar=("X", "Y"))
@@ -51,6 +51,9 @@ def main(argv=None) -> int:
         with IPhoneClient(args.url) as client:
             match args.command:
                 case "status": result = client.status()
+                case "claim": result = client.claim()
+                case "release": result = client.release()
+                case "tasks": result = {"tasks": client.tasks()}
                 case "screenshot":
                     args.output.write_bytes(client.screenshot())
                     result = {"path": str(args.output.resolve())}
