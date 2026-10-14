@@ -64,13 +64,14 @@ class Device:
             raise DeviceError("board not connected")
         timeout = self._timeout(command)
         async with self._lock:
+            reader, writer = self._reader, self._writer
             started = time.time()
             try:
-                self._writer.write(command.encode() + b"\n")
-                await self._writer.drain()
-                reply = (await asyncio.wait_for(self._reader.readline(), timeout)).decode().strip()
+                writer.write(command.encode() + b"\n")
+                await writer.drain()
+                reply = (await asyncio.wait_for(reader.readline(), timeout)).decode().strip()
             except (OSError, asyncio.TimeoutError) as e:
-                self._writer.close()  # the board reconnects on its own within a few seconds
+                writer.close()  # do not close a replacement connection accepted while awaiting this reply
                 raise DeviceError(f"board link lost during '{command[:30]}': {e!r}") from e
         self._beat = time.time()  # last reply of any kind
         if command != "ping":

@@ -4,10 +4,14 @@ import asyncio
 import json
 import logging
 import math
+import os
 import re
 import time
+import uuid
+from copy import deepcopy
 
 from . import vision
+from .actions import PARAMS, action_tools, validate_action
 from .debug import Trace
 from .device import DeviceError
 from .llm import LLM
@@ -69,9 +73,7 @@ DO: tap 152 362"""
 META = ("t", "thought", "thought_zh", "think_s", "act_s", "shot", "_shot", "changed")  # not part of the action
 
 # action name -> argument names; numeric arguments are 0-1000 screen coordinates
-ACTIONS = {"tap": ("x", "y"), "swipe": ("x1", "y1", "x2", "y2"), "circle": ("x", "y", "r"), "path": ("points",),
-           "type": ("text",), "key": ("combo",), "done": ("answer",), "fail": ("reason",),
-           "home": (), "back": (), "wait": (), "replan": ()}
+ACTIONS = PARAMS
 TEXT_ARGS = ("text", "combo", "answer", "reason")
 
 
@@ -83,18 +85,18 @@ def parse_command(line: str) -> dict:
         raise ValueError(f"unknown action: {line[:100]}")
     keys = ACTIONS[name]
     if keys and keys[0] in TEXT_ARGS:
-        return {"action": name, keys[0]: rest.strip().strip('"')}
+        return validate_action({"action": name, keys[0]: rest.strip().strip('"')})
     numbers = [int(float(n)) for n in re.findall(r"-?\d+(?:\.\d+)?", rest)]
     if keys == ("points",):
         if len(numbers) < 4 or len(numbers) % 2:
             raise ValueError(f"path needs 2+ x y pairs: {line[:100]}")
-        return {"action": name, "points": [numbers[i:i + 2] for i in range(0, len(numbers), 2)][:20]}
+        return validate_action({"action": name, "points": [numbers[i:i + 2] for i in range(0, len(numbers), 2)][:20]})
     if len(numbers) != len(keys):
         raise ValueError(f"{name} needs {len(keys)} numbers: {line[:100]}")
     action = {"action": name, **dict(zip(keys, numbers, strict=True))}
     if name == "tap" and "precise" in rest.lower():
         action["precise"] = True
-    return action
+    return validate_action(action)
 
 
 def parse_actions(text: str) -> list[dict]:
@@ -129,24 +131,88 @@ class Agent:
         self.phone, self.screen, self.actor, self.planner = phone, screen, actor, planner
         self.trace = trace
         self.max_steps, self.max_failures = max_steps, max_failures
+        self._default_max_steps = max_steps
         self.task, self.plan, self.steps = "", "", []
         self.shots: dict[int, bytes] = {}  # step index -> screenshot the model decided on
         self._pointer = (0.0, 0.0)  # last pointer position (screen fractions)
         self._job: asyncio.Task | None = None
+        self.run_id = None
+        self.started_at = self.finished_at = None
+        self._history: dict[str, dict] = {}
+        self.actor_mode = os.environ.get("ACTOR_MODE", "text")
+        if self.actor_mode not in ("text", "tools"):
+            raise ValueError("ACTOR_MODE must be text or tools")
+        self.verify_completion = os.environ.get("VERIFY_COMPLETION", "1") == "1"
+        self._completion_retries = 0
 
     @property
     def running(self) -> bool:
         return self._job is not None and not self._job.done()
 
-    def start(self, task: str) -> None:
+    def start(self, task: str, max_steps: int | None = None, timeout_s: float = 600) -> str:
         if self.running:
             raise RuntimeError("agent already running")
+        if not task.strip():
+            raise RuntimeError("task must not be empty")
+        if not self.phone.device.connected:
+            raise RuntimeError("controller not connected")
+        if not self.phone.calibrated:
+            raise RuntimeError("pointer not calibrated")
+        if not self.actor.model or not self.planner.model:
+            raise RuntimeError("configure the actor and planner models first")
         if not self.screen.live:
             raise RuntimeError("no phone screen: start Screen Mirroring first")
+        max_steps = self._default_max_steps if max_steps is None else max_steps
+        if not isinstance(max_steps, int) or not 1 <= max_steps <= 120 or not 1 <= timeout_s <= 3600:
+            raise RuntimeError("invalid task limits")
+        self._archive()
+        self.run_id = uuid.uuid4().hex
+        self.started_at, self.finished_at = time.time(), None
+        self._completion_retries = 0
+        self.max_steps = max_steps
         self.task, self.plan, self.steps, self.shots = task, "", [], {}
         self._pointer = (0.0, 0.0)
         self.trace.start(task)
-        self._job = asyncio.create_task(self._run())
+        self._job = asyncio.create_task(self._execute(timeout_s))
+        return self.run_id
+
+    async def _execute(self, timeout_s: float) -> None:
+        try:
+            await asyncio.wait_for(self._run(), timeout_s)
+        except asyncio.TimeoutError:
+            self._record(action="fail", reason="task deadline exceeded")
+        except asyncio.CancelledError:
+            pass
+        finally:
+            self.finished_at = time.time()
+
+    def run_info(self, run_id: str | None = None) -> dict:
+        if run_id is not None and run_id != self.run_id:
+            if run_id not in self._history:
+                raise KeyError(run_id)
+            return deepcopy(self._history[run_id])
+        last = self.steps[-1] if self.steps else {}
+        state = "running" if self.running else {
+            "done": "succeeded", "fail": "failed", "error": "failed", "stopped": "cancelled",
+        }.get(last.get("action"), "cancelled" if self.run_id else "idle")
+        return {"id": self.run_id, "state": state, "goal": self.task, "plan": self.plan,
+                "started_at": self.started_at, "finished_at": self.finished_at,
+                "result": last.get("answer"), "error": last.get("reason"), "steps": deepcopy(self.steps)}
+
+    def _archive(self):
+        if self.run_id:
+            self._history[self.run_id] = self.run_info()
+            while len(self._history) > 10:
+                del self._history[next(iter(self._history))]
+
+    async def wait_stopped(self):
+        if self._job:
+            try:
+                await self._job
+            except asyncio.CancelledError:
+                pass
+            if self.finished_at is None:
+                self.finished_at = time.time()
 
     def stop(self) -> None:
         if self.running:
@@ -155,11 +221,16 @@ class Agent:
     def clear(self) -> None:
         if self.running:
             raise RuntimeError("stop the agent first")
+        self._archive()
+        self.run_id = None
+        self.started_at = self.finished_at = None
         self.task, self.plan, self.steps, self.shots = "", "", [], {}
 
     def _record(self, shot: bytes | None = None, **step) -> None:
         if shot:
             self.shots[len(self.steps)] = shot
+            while len(self.shots) > 32:
+                del self.shots[next(iter(self.shots))]
         self.steps.append({"t": time.time(), "shot": bool(shot), **step})
         self.trace.write(kind="step", **step)
         log.info("agent: %s", step)
@@ -169,7 +240,12 @@ class Agent:
         if not self.screen.live:  # never let the model act blind
             raise BlindError("lost the phone screen: reconnect Screen Mirroring")
         frame, started = self.screen.frame, time.time()
-        reply = await llm.chat(system, prompt, frame, temperature=temperature)
+        kwargs = {"temperature": temperature}
+        if role == "actor" and self.actor_mode == "tools":
+            kwargs["tools"] = action_tools()
+        reply = await llm.chat(system, prompt, frame, **kwargs)
+        if not self.screen.live:
+            raise BlindError("lost the phone screen while waiting for the model")
         seconds = round(time.time() - started, 2)
         self.trace.write(frame, kind="llm", role=role, model=llm.model, prompt=prompt,
                          reply=reply, seconds=seconds)
@@ -198,6 +274,7 @@ class Agent:
             self._record(action="fail", reason="step limit reached")
         except asyncio.CancelledError:
             self._record(action="stopped")
+            raise
         except Exception as e:  # e.g. the planner itself is unreachable
             self._record(action="error", reason=repr(e))
 
@@ -213,7 +290,23 @@ class Agent:
                 self._record(act.pop("_shot"), **act)
                 await self._replan(stuck=stuck)
                 return False
+            if name == "done" and self.verify_completion:
+                reply, _, _ = await self._ask(
+                    "verifier", self.planner,
+                    "Check task completion against the current iPhone screenshot. Reply YES only if the visible "
+                    "evidence supports completion. Otherwise reply NO with a short explanation. Do not assume success.",
+                    f"Goal: {self.task}\nClaim: {act.get('answer', '')}")
+                if reply.strip().upper() != "YES":
+                    self._completion_retries += 1
+                    self._record(action="verification", reason=reply[:500])
+                    if self._completion_retries >= 2:
+                        self._record(action="fail", reason="completion could not be verified")
+                        return True
+                    await self._replan(stuck=True)
+                    return False
             if name not in ("done", "fail"):
+                if not self.screen.live:
+                    raise BlindError("lost the phone screen before acting")
                 started = time.time()
                 await self._do(act)
                 act["act_s"] = round(time.time() - started, 2)
@@ -266,11 +359,17 @@ class Agent:
                             for s in self.steps[-8:] if "plan" not in s) or "(none)"
         prompt = f"Goal: {self.task}\n\nPlan:\n{self.plan}\n\nRecent actions:\n{history}\n\nNext action?"
         for attempt in range(3):  # retry unparseable replies, a little less deterministically
-            reply, seconds, frame = await self._ask("actor", self.actor, ACTOR_PROMPT, prompt, 0.4 * attempt)
+            system = ACTOR_PROMPT
+            if self.actor_mode == "tools":
+                system = ("Operate the iPhone by calling exactly one action tool. Put a brief observation and "
+                          "reason in thought. Look at the next screenshot before choosing another action.\n" +
+                          ACTOR_PROMPT[ACTOR_PROMPT.index("Coordinates are"):])
             try:
-                acts = parse_actions(reply)
+                reply, seconds, frame = await self._ask("actor", self.actor, system, prompt, 0.4 * attempt)
+                acts = [validate_action(json.loads(reply))] if self.actor_mode == "tools" else parse_actions(reply)
             except ValueError as e:
-                log.warning("unparseable actor reply (%s): %s", e, reply[:200])
+                log.warning("invalid actor action: %s", e)
+                prompt += f"\nYour last action was invalid: {e}. Correct the arguments and try again."
                 continue
             if self._missed() and _key(acts[0]) == _key(self.steps[-1]):  # same move that just did nothing
                 log.info("actor repeated an action that changed nothing; asking for another")
@@ -279,7 +378,7 @@ class Agent:
                 continue
             acts[0]["think_s"] = seconds
             return [{**a, "_shot": frame} for a in acts]  # every action is drawn on the same screenshot
-        raise ValueError(f"actor gave no valid action: {reply[:200]}")
+        raise ValueError("actor gave no valid action after three attempts")
 
     async def _do(self, a: dict) -> None:
         p = lambda k: a[k] / 1000  # noqa: E731

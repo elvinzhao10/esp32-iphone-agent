@@ -206,6 +206,16 @@ server/     agent, web UI, screen capture and board link (Python, FastAPI)
             serve/: optional minimal server to host a Hugging Face vision model yourself
 ```
 
+## Remote agents, MCP, and CLI
+
+A stronger agent can control the iPhone directly through screenshot and control tools,
+or delegate a goal to the built-in vision agent and poll its task ID for progress,
+results, and cancellation. The CLI and optional controller-side MCP bridge share
+the existing API; no extra agent framework is required on the Pi.
+
+See [Remote agents and task delegation](docs/remote-agents.md) for installation,
+MCP configuration, HTTP examples, Tailscale access, and structured actor mode.
+
 ## Roadmap
 
 - [ ] Test a fully local setup with DiffusionGemma (`server/serve/` has an experimental OpenAI-compatible server)

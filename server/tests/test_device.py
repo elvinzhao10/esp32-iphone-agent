@@ -39,3 +39,46 @@ def test_round_trip_with_a_fake_board():
         server.close()
 
     asyncio.run(scenario())
+
+
+def test_old_request_failure_does_not_close_replacement_connection():
+    class Writer:
+        def __init__(self):
+            self.closed = False
+        def is_closing(self): return self.closed
+        def close(self): self.closed = True
+        def write(self, data): pass
+        async def drain(self): pass
+        def get_extra_info(self, key): return ("fake-board", 7300)
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class OldReader:
+            async def readline(self):
+                entered.set()
+                await release.wait()
+                raise OSError("old connection lost")
+
+        class NewReader:
+            def __init__(self): self.first = True
+            async def readline(self):
+                if self.first:
+                    self.first = False
+                    return b"hello power-on 123\n"
+                return b"ok\n"
+
+        device = Device()
+        old, replacement = Writer(), Writer()
+        device._reader, device._writer = OldReader(), old
+        pending = asyncio.create_task(device.send("ping"))
+        await entered.wait()
+        await device._accept(NewReader(), replacement)
+        release.set()
+        with pytest.raises(DeviceError, match="old connection lost"):
+            await pending
+        assert old.closed
+        assert device.connected and not replacement.closed
+        await device.send("ping")
+
+    asyncio.run(scenario())
