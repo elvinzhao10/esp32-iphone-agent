@@ -1183,3 +1183,232 @@ body.still .flow {
   border-radius: 7px;
   padding: 8px;
 }
+
+/* Compact control surface: the screen and actions carry the interface. */
+.appbar {
+  padding: 14px 24px;
+  min-height: 64px;
+}
+.brand {
+  gap: 10px;
+}
+.brand-icon {
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  font-size: 20px;
+}
+.bar-actions {
+  gap: 8px;
+}
+#theme,
+#open-settings {
+  width: 36px;
+  height: 34px;
+  padding: 0;
+  font-size: 18px;
+}
+.ownership-bar {
+  min-height: 48px;
+  padding: 8px 24px;
+  background: var(--bg);
+}
+main {
+  gap: 24px;
+  padding: 24px;
+}
+.workspace {
+  gap: 14px;
+}
+.mode-picker {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--surface);
+}
+.mode-picker .mode-card {
+  display: flex;
+  flex: 1;
+  justify-content: center;
+  align-items: center;
+  gap: 8px;
+  min-height: 42px;
+  padding: 8px 12px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  box-shadow: none;
+}
+.mode-picker .mode-card.selected {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.mode-picker .mode-icon {
+  display: inline;
+  margin: 0;
+  font-size: 17px;
+}
+.mode-picker .mode-card b {
+  margin: 0;
+  font-size: 12px;
+}
+.setup {
+  display: flex;
+  gap: 16px;
+  margin: 0;
+  padding: 2px 4px;
+}
+.setup li {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  font-size: 11px;
+  color: var(--muted);
+}
+.setup li::before {
+  position: static;
+  width: 6px;
+  height: 6px;
+  border: 0;
+  background: var(--line);
+}
+.setup li.done::before {
+  background: var(--ok);
+}
+.setup li.done {
+  background: transparent;
+  border: 0;
+}
+.manual-empty {
+  display: none;
+}
+.workflow-panel,
+.run-panel,
+.activity-panel {
+  padding: 16px;
+  box-shadow: none;
+  border-radius: 12px;
+}
+.workflow-panel h2 {
+  font-size: 15px;
+}
+.phone-panel {
+  gap: 12px;
+  padding: 16px;
+  box-shadow: none;
+}
+.section-title h2 {
+  margin: 0;
+}
+.phone-toolbar {
+  width: 100%;
+}
+.preview-options {
+  justify-content: space-between;
+  font-size: 10px;
+  gap: 6px;
+}
+#input-state {
+  font-size: 10px;
+}
+.preview-options select {
+  max-width: 80px;
+}
+.task-actions,
+.preferences {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 12px;
+}
+.advanced summary,
+details.activity-panel > summary,
+.integration summary {
+  cursor: pointer;
+  color: var(--muted);
+  font-size: 12px;
+}
+.advanced {
+  margin-top: 14px;
+}
+.task-limits {
+  margin: 12px 0;
+}
+.recipe-panel {
+  padding: 12px;
+}
+.recipe-panel > label {
+  font-size: 11px;
+  color: var(--muted);
+}
+.recipe-panel .row {
+  margin-top: 6px;
+}
+#workflow-precondition {
+  margin: 7px 0 0;
+  font-size: 11px;
+}
+#msg:empty {
+  display: none;
+}
+.external-meta {
+  font-size: 12px;
+}
+.integration {
+  padding: 0;
+  background: transparent;
+  border: 0;
+}
+.integration .row {
+  margin-top: 12px;
+}
+#external-activity {
+  align-self: flex-start;
+}
+.activity-panel .panel-heading {
+  margin-top: 14px;
+}
+#provider-settings {
+  margin-top: 4px;
+}
+#provider-fields {
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+}
+#providers-form > small {
+  font-size: 10px;
+  color: var(--muted);
+}
+#provider-result {
+  font-size: 11px;
+}
+@media (max-width: 720px) {
+  .appbar {
+    padding: 12px 16px;
+    flex-wrap: nowrap;
+  }
+  .appbar .connection {
+    margin-left: auto;
+  }
+  .appbar .connection #server-state {
+    display: none;
+  }
+  .brand strong {
+    font-size: 14px;
+  }
+  .ownership-bar {
+    padding: 8px 16px;
+  }
+  main {
+    padding: 16px;
+    gap: 18px;
+  }
+  .setup {
+    justify-content: space-around;
+    gap: 8px;
+  }
+}

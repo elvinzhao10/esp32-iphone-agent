@@ -1,9 +1,9 @@
 // UI strings and plain-language step descriptions, in English and Simplified Chinese.
 const I18N = {
   en: {
-    waiting: "Waiting for the phone screen…", liveCaption: "Live screen · click to tap, drag to swipe",
-    estop: "■ Emergency stop (Esc)", motionOn: "Motion: on", motionOff: "Motion: off", estopHint: "Stops the AI and lets go of the screen",
-    clear: "Dismiss current run",
+    waiting: "Start Screen Mirroring", liveCaption: "Live screen · click to tap, drag to swipe",
+    estop: "■ Stop", motionOn: "Motion: on", motionOff: "Motion: off", estopHint: "Stops the AI and lets go of the screen",
+    clear: "Dismiss",
     manual: "Manual controls", home: "Home", back: "Back", calibrate: "Calibrate", type: "Type", press: "Press",
     typePh: "Type text", keyPh: "Key: enter, cmd+a…", log: "Live log",
     tagline: "Tell the AI what to do. It looks at the screen, decides, and taps for you.",
@@ -21,7 +21,7 @@ const I18N = {
   },
   zh: {
     waiting: "等待手机画面…", liveCaption: "实时画面 · 点击 = 点按，拖动 = 滑动",
-    estop: "■ 紧急停止（Esc）", motionOn: "动效：开", motionOff: "动效：关", estopHint: "立即停止 AI，并松开屏幕",
+    estop: "■ 停止", motionOn: "动效：开", motionOff: "动效：关", estopHint: "立即停止 AI，并松开屏幕",
     clear: "关闭当前任务",
     manual: "手动操控", home: "主屏幕", back: "返回", calibrate: "校准", type: "输入", press: "按键",
     typePh: "输入文字", keyPh: "按键：enter、cmd+a…", log: "实时日志",

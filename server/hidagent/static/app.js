@@ -10,7 +10,8 @@ const systemTheme = matchMedia("(prefers-color-scheme: dark)");
 function applyTheme() {
   document.documentElement.dataset.theme =
     theme === "system" ? (systemTheme.matches ? "dark" : "light") : theme;
-  $("theme").textContent = `Theme: ${theme}`;
+  $("theme").textContent = { system: "◐", dark: "☾", light: "☀" }[theme];
+  $("theme").title = `Theme: ${theme}`;
 }
 $("theme").onclick = () => {
   theme = { system: "dark", dark: "light", light: "system" }[theme] || "system";
@@ -38,7 +39,7 @@ async function loadWorkflows() {
     );
     if (!recipes.length) {
       const option = document.createElement("option");
-      option.textContent = "No workflows configured";
+      option.textContent = "No workflows";
       option.value = "";
       $("workflow-name").append(option);
     }
@@ -50,8 +51,8 @@ async function loadWorkflows() {
 $("workflow-name").onchange = () => {
   const recipe = recipes.find((r) => r.name === $("workflow-name").value);
   $("workflow-precondition").textContent = recipe
-    ? `Start only when: ${recipe.precondition}`
-    : "Configure WORKFLOWS_FILE on this host to add reusable recipes.";
+    ? `Requires: ${recipe.precondition}`
+    : "No workflows.";
 };
 $("run-workflow").onclick = async () => {
   try {
@@ -571,7 +572,8 @@ function feedback(point) {
   setTimeout(() => marker.remove(), 400);
 }
 function calibrationHint(key) {
-  $("caption").textContent = t(key || "liveCaption");
+  $("caption").hidden = !key;
+  $("caption").textContent = key ? t(key) : "";
   $("caption").classList.toggle("callout", Boolean(key));
   live.parentElement.classList.toggle("calibrating", key === "calNow");
 }
@@ -710,7 +712,7 @@ async function refreshHistory() {
             });
             return b;
           })
-        : [el("p", "empty", "Completed and stopped tasks will appear here.")]),
+        : [el("p", "empty", "No tasks")]),
     );
   } catch {
     /* keep the last history during reconnect */
@@ -743,7 +745,7 @@ async function poll() {
     if (!response.ok) throw new Error("status unavailable");
     const s = await response.json();
     latest = s;
-    $("server-state").textContent = "Host connected";
+    $("server-state").textContent = "Connected";
     $("server-dot").classList.add("on");
     const c = s.control,
       a = s.agent,
@@ -757,41 +759,25 @@ async function poll() {
     document.body.dataset.mode = c.mode;
     $("mode-badge").textContent = modes[c.mode];
     $("owner").textContent = c.owner;
-    $("ownership-detail").textContent =
-      c.mode === "external" && c.activity === "delegated"
-        ? `External agent delegated a ${c.engine === "workflow" ? "quick workflow" : "vision task"} to the local executor.`
-        : c.mode === "local"
-          ? `Local ${a.engine === "workflow" ? "workflow executor" : "vision agent"} is operating the phone.`
-          : c.mode === "external"
-            ? "External tools own input. This dashboard is observing."
-            : own
-              ? "Ready for your input."
-              : "Another dashboard owns input.";
     $("take-control").textContent = a.running
       ? "Stop & take control"
       : "Take control";
     $("release-control").hidden = !c.client_id || !own;
     $("input-lock").hidden = inputAllowed;
-    $("input-lock").textContent = s.screen
-      ? "View only · take control to interact"
-      : "Screen sharing offline";
+    $("input-lock").textContent = s.screen ? "View only" : "Start mirroring";
     $("external-activity").textContent =
       c.mode === "external"
         ? c.activity === "delegated"
-          ? `Hybrid · ${c.owner} is waiting for the local ${c.engine === "workflow" ? "workflow" : "vision"} executor. Direct tools resume when it finishes.`
-          : "Direct control · this session can delegate workflows or visual tasks and resume direct tools afterward."
-        : "Direct tools and quick workflows need no host model key. Visual delegation uses the shared model settings below.";
+          ? `Hybrid · ${c.engine === "workflow" ? "Workflow" : "Vision"}`
+          : "Direct"
+        : "Direct · Hybrid";
     $("external-owner").textContent =
-      c.mode === "external"
-        ? `Connected: ${c.owner}`
-        : "No external controller currently owns input";
+      c.mode === "external" ? `Connected: ${c.owner}` : "Not connected";
     $("lease-time").textContent = c.expires_at
       ? `Session expires in ${Math.max(0, Math.ceil(c.expires_at - Date.now() / 1000))}s without activity`
       : "";
     $("frame-state").textContent =
-      s.screen && Date.now() - lastFrameAt < 4000
-        ? "Live · up to 8 fps"
-        : "Waiting for mirroring";
+      s.screen && Date.now() - lastFrameAt < 4000 ? "Live" : "Offline";
     $("setup")
       .querySelectorAll("li")
       .forEach((li) => li.classList.toggle("done", Boolean(s[li.dataset.key])));
@@ -830,11 +816,10 @@ async function poll() {
       ? "Completion verification on"
       : "Completion verification off";
     $("model-health").textContent = s.configuration.model_ready
-      ? "Models configured"
-      : "Model setup needed";
+      ? "Ready"
+      : "Model needed";
     $("model-warning").hidden = s.configuration.model_ready;
-    $("model-warning").textContent =
-      "Open Model providers above to configure the vision endpoint, model and key. These settings are shared by Local tasks and External visual delegation. Direct tools and workflows need no host model.";
+    $("model-warning").textContent = "Set up a vision model in Settings.";
     aspect = s.aspect || aspect;
     fitPreview();
     document.querySelector(".screen").style.aspectRatio = String(aspect);
@@ -857,15 +842,7 @@ async function poll() {
     }));
     const logs = [...events, ...a.steps].sort((x, y) => x.t - y.t).slice(-60);
     $("log").replaceChildren(
-      ...(logs.length
-        ? logs.map(logLine)
-        : [
-            el(
-              "li",
-              "empty",
-              "Nothing running. Your device is ready when you are.",
-            ),
-          ]),
+      ...(logs.length ? logs.map(logLine) : [el("li", "empty", "No activity")]),
     );
     if (Date.now() - historyAt > 5000 && !$("history").hidden) {
       historyAt = Date.now();
@@ -903,9 +880,9 @@ async function loadProviders() {
     const settings = await response.json();
     $("provider-fields").replaceChildren();
     for (const [role, title] of [
-      ["actor", "Vision actor"],
-      ["planner", "Vision planner / verifier"],
-      ["jev", "Jev / workflow router"],
+      ["actor", "Actor"],
+      ["planner", "Planner"],
+      ["jev", "Jev / Router"],
     ]) {
       const box = document.createElement("fieldset");
       const legend = document.createElement("legend");
@@ -920,10 +897,10 @@ async function loadProviders() {
         const label = document.createElement("label");
         label.textContent = {
           protocol: "API protocol",
-          base_url: "Base URL (include /v1 when required)",
+          base_url: "Base URL",
           model: "Model",
           api_key: "API key",
-          min_confidence: "Minimum routing confidence",
+          min_confidence: "Confidence",
         }[key];
         const field = document.createElement(
           key === "protocol" ? "select" : "input",
@@ -932,7 +909,7 @@ async function loadProviders() {
         if (key === "protocol") {
           for (const [value, text] of [
             ["typesafe", "TypeSafe System One"],
-            ["openai", "OpenAI-compatible Chat Completions"],
+            ["openai", "OpenAI-compatible"],
           ]) {
             const option = document.createElement("option");
             option.value = value;
@@ -977,9 +954,15 @@ $("providers-form").onsubmit = async (e) => {
   $("save-providers").disabled = true;
   const result = await post("/api/settings", patch);
   if (result) {
-    $("provider-result").textContent =
-      "Saved on this host · active immediately";
+    $("provider-result").textContent = "Saved";
     await loadProviders();
   } else $("provider-result").textContent = "Could not save settings";
 };
 loadProviders();
+
+$("open-settings").onclick = () => {
+  const panel = $("provider-settings");
+  panel.open = !panel.open;
+  if (panel.open)
+    panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
+};
