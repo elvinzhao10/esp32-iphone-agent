@@ -1,81 +1,296 @@
 <!doctype html>
 <html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ESP32 iPhone Agent</title>
-<link rel="stylesheet" href="/static/style.css">
-</head>
-<body>
-<main>
-  <!-- 1. the real phone -->
-  <section class="col phone">
-    <div class="screen">
-      <img id="live" alt="">
-      <div class="hint" id="hint" data-i18n="waiting"></div>
-    </div>
-    <p class="caption" id="caption" data-i18n="liveCaption"></p>
-    <button class="estop" id="estop" data-i18n="estop"></button>
-    <p class="caption" data-i18n="estopHint"></p>
-    <details class="manual">
-      <summary data-i18n="manual"></summary>
-      <div class="row"><button data-post="/api/home" data-i18n="home"></button><button data-post="/api/back" data-i18n="back"></button><button id="cal" data-i18n="calibrate"></button></div>
-      <div class="row"><input id="text" data-i18n-ph="typePh"><button id="type" data-i18n="type"></button></div>
-      <div class="row"><input id="key" data-i18n-ph="keyPh"><button id="press" data-i18n="press"></button></div>
-    </details>
-  </section>
-
-  <!-- 2. live log, both languages -->
-  <section class="col log">
-    <header class="colhead"><h2 data-i18n="log"></h2><span class="live-dot" id="live-dot"></span></header>
-    <ol id="log"></ol>
-  </section>
-
-  <!-- 3. task, progress and the step wall -->
-  <section class="col work">
-    <header class="top">
-      <div><h1>ESP32 iPhone Agent</h1><p data-i18n="tagline"></p></div>
-      <div class="models">
-        <div><span data-i18n="decision"></span><b id="m-planner"></b><small id="m-planner-s"></small></div>
-        <div><span data-i18n="executor"></span><b id="m-actor"></b><small id="m-actor-s"></small></div>
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>iPhone Agent</title>
+    <link rel="stylesheet" href="/static/style.css" />
+  </head>
+  <body>
+    <header class="appbar">
+      <a class="brand" href="/"
+        ><span class="brand-icon" aria-hidden="true">⌁</span
+        ><strong>iPhone Agent</strong></a
+      >
+      <div class="connection">
+        <span id="server-dot" class="dot"></span
+        ><span id="server-state">Connecting…</span>
       </div>
-      <button class="motion" id="motion"></button>
-      <div class="lang" id="lang"><button data-lang="en">EN</button><button data-lang="zh">中文</button></div>
+      <div class="bar-actions">
+        <button id="theme" aria-label="Color theme" title="Color theme">
+          ◐
+        </button>
+        <button id="open-settings" aria-label="Settings" title="Settings">
+          ⚙
+        </button>
+        <button class="danger" id="estop" data-i18n="estop"></button>
+      </div>
     </header>
-
-    <ol class="setup" id="setup">
-      <li data-key="device"><b data-i18n="s1"></b><span data-i18n="s1d"></span></li>
-      <li data-key="screen"><b data-i18n="s2"></b><span data-i18n="s2d"></span></li>
-      <li data-key="calibrated"><b data-i18n="s3"></b><span data-i18n="s3d"></span></li>
-    </ol>
-
-    <div class="task">
-      <textarea id="task" rows="2" data-i18n-ph="taskPh"></textarea>
-      <div class="row">
-        <button class="primary" id="run" data-i18n="start"></button>
-        <button id="stop" data-i18n="stop" hidden></button>
-        <button id="clear" data-i18n="clear" hidden></button>
-        <div class="examples" id="examples"></div>
+    <div class="ownership-bar" aria-live="polite">
+      <div>
+        <span id="mode-badge" class="badge">Manual</span
+        ><strong id="owner">Connecting…</strong>
       </div>
-      <p class="msg" id="msg"></p>
+      <div class="row">
+        <button id="release-control" hidden>Release</button
+        ><button id="take-control">Take control</button>
+      </div>
     </div>
-
-    <div class="summary" id="summary" hidden>
-      <div><b id="st-state"></b><span data-i18n="status"></span></div>
-      <div><b id="st-steps"></b><span data-i18n="actions"></span></div>
-      <div><b id="st-time"></b><span data-i18n="total"></span></div>
-      <div><b id="st-step"></b><span data-i18n="perAction"></span></div>
-    </div>
-
-    <details class="plan" id="plan" hidden open><summary data-i18n="plan"></summary><ol id="plan-list"></ol></details>
-
-    <div class="wall" id="wall"></div>
-  </section>
-</main>
-
-<dialog id="zoom"><div class="zoombox"><img id="zoom-img" alt=""><div class="overlay" id="zoom-overlay"></div></div><p id="zoom-text"></p></dialog>
-
-<script src="/static/i18n.js"></script>
-<script src="/static/app.js"></script>
-</body>
+    <main>
+      <section class="phone-panel" aria-label="Live iOS device">
+        <div class="section-title">
+          <h2>Screen</h2>
+          <span id="frame-state">Offline</span>
+        </div>
+        <div class="screen">
+          <img id="live" alt="Live mirrored device screen" draggable="false" />
+          <div class="hint" id="hint" data-i18n="waiting"></div>
+          <span id="input-lock" class="input-lock" hidden>View only</span>
+        </div>
+        <div class="phone-toolbar">
+          <button data-post="/api/back" data-i18n="back"></button
+          ><button data-post="/api/home" data-i18n="home"></button
+          ><button id="cal" data-i18n="calibrate"></button>
+        </div>
+        <div class="preview-options">
+          <select id="gesture-mode" aria-label="Gesture">
+            <option value="1">Tap</option>
+            <option value="2">Double</option>
+            <option value="3">Triple</option>
+            <option value="hold">Hold</option>
+          </select>
+          <select id="preview-size" aria-label="Preview size">
+            <option value="1">Fit</option>
+            <option value="0.75">Small</option>
+            <option value="1.4">Large</option>
+          </select>
+          <label title="Correct the pointer visually before tapping"
+            ><input id="precision" type="checkbox" /> Precision</label
+          >
+          <span id="input-state" role="status"></span>
+        </div>
+        <p class="caption" id="caption" hidden></p>
+        <details class="manual">
+          <summary>Keyboard</summary>
+          <div class="shortcut-tray">
+            <button data-shortcut="search" title="Search — iPhone: Home Screen required; iPad: Command-Space">⌕</button
+            ><button data-shortcut="switch_app" title="Switch app">⌘ Tab</button
+            ><button data-shortcut="undo" title="Undo">↶</button
+            ><button data-shortcut="redo" title="Redo">↷</button
+            ><button data-shortcut="escape" title="Escape">Esc</button>
+          </div>
+          <input
+            id="live-keyboard"
+            aria-label="Live keyboard"
+            placeholder="Type here to send keys live"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+          <div class="preview-options">
+            <label><input id="replace-text" type="checkbox" /> Replace</label
+            ><label
+              ><input id="submit-text" type="checkbox" /> Enter after
+              typing</label
+            >
+          </div>
+          <div class="row">
+            <input
+              id="text"
+              aria-label="Text to type"
+              data-i18n-ph="typePh"
+            /><button id="type" data-i18n="type"></button>
+          </div>
+          <div class="row">
+            <input
+              id="key"
+              aria-label="Keyboard shortcut"
+              data-i18n-ph="keyPh"
+            /><button id="press" data-i18n="press"></button>
+          </div>
+        </details>
+      </section>
+      <section class="workspace">
+        <div class="mode-picker" aria-label="Control mode">
+          <button data-panel="manual" class="mode-card selected">
+            <span class="mode-icon" aria-hidden="true">↖</span><b>Manual</b>
+          </button>
+          <button data-panel="external" class="mode-card">
+            <span class="mode-icon" aria-hidden="true">⌘</span><b>External</b>
+          </button>
+          <button data-panel="local" class="mode-card">
+            <span class="mode-icon" aria-hidden="true">✦</span><b>Local</b>
+          </button>
+        </div>
+        <ol class="setup" id="setup">
+          <li data-key="device" title="USB controller"><b>Controller</b></li>
+          <li data-key="screen" title="AirPlay mirroring"><b>Screen</b></li>
+          <li data-key="calibrated" title="Pointer calibration">
+            <b>Calibrated</b>
+          </li>
+        </ol>
+        <section
+          id="panel-manual"
+          class="manual-empty"
+          aria-label="Manual mode"
+        >
+          <span class="live-dot" id="live-dot"></span>
+        </section>
+        <section id="panel-external" class="workflow-panel" hidden>
+          <div class="external-meta">
+            <span id="external-owner">Not connected</span
+            ><span id="lease-time"></span>
+          </div>
+          <span id="external-activity" class="badge">Direct · Hybrid</span>
+          <details class="integration">
+            <summary>Connect via MCP</summary>
+            <div class="row">
+              <code id="mcp-command"></code><button id="copy-mcp">Copy</button>
+            </div>
+          </details>
+        </section>
+        <section id="panel-local" class="workflow-panel" hidden>
+          <div class="panel-heading">
+            <h2>Run</h2>
+            <span id="model-health" class="badge"></span>
+          </div>
+          <div class="recipe-panel">
+            <label for="workflow-name">Workflow</label>
+            <div class="row">
+              <select id="workflow-name" aria-label="Saved workflow">
+                <option value="">No workflows</option></select
+              ><button id="run-workflow">Run</button>
+            </div>
+            <p id="workflow-precondition" class="muted"></p>
+          </div>
+          <div class="task">
+            <textarea
+              id="task"
+              rows="3"
+              aria-label="Task"
+              placeholder="What should the phone do?"
+            ></textarea>
+            <div class="task-actions">
+              <button class="primary" id="run">Start</button
+              ><button id="stop" hidden>Stop</button>
+            </div>
+            <p id="model-warning" class="notice" hidden></p>
+            <details class="advanced">
+              <summary>Options</summary>
+              <label class="fast-workflows"
+                ><input id="fast-workflows" type="checkbox" checked /> Fast
+                workflows</label
+              >
+              <div class="task-limits">
+                <label
+                  >Steps<input
+                    id="max-steps"
+                    type="number"
+                    min="1"
+                    max="120"
+                    value="40" /></label
+                ><label
+                  >Seconds<input
+                    id="task-timeout"
+                    type="number"
+                    min="1"
+                    max="3600"
+                    value="600"
+                /></label>
+              </div>
+              <div class="models">
+                <div>
+                  <span>Planner</span><b id="m-planner"></b
+                  ><small id="m-planner-s"></small>
+                </div>
+                <div>
+                  <span>Actor</span><b id="m-actor"></b
+                  ><small id="m-actor-s"></small>
+                </div>
+                <div>
+                  <span>Format</span><b id="actor-format"></b
+                  ><small id="verification-state"></small>
+                </div>
+              </div>
+              <div class="examples" id="examples"></div>
+            </details>
+          </div>
+        </section>
+        <p class="msg" id="msg" role="status" aria-live="polite"></p>
+        <section id="current-task" class="run-panel" hidden>
+          <div class="panel-heading">
+            <div>
+              <span class="eyebrow" id="task-origin"></span>
+              <h2 id="current-goal"></h2>
+            </div>
+            <button id="show-current" hidden>Live task</button
+            ><button id="clear" data-i18n="clear" hidden></button>
+          </div>
+          <div class="summary" id="summary">
+            <div><b id="st-state"></b><span data-i18n="status"></span></div>
+            <div><b id="st-steps"></b><span data-i18n="actions"></span></div>
+            <div><b id="st-time"></b><span data-i18n="total"></span></div>
+            <div><b id="st-step"></b><span data-i18n="perAction"></span></div>
+          </div>
+          <progress
+            id="task-progress"
+            max="40"
+            value="0"
+            aria-label="Task step budget"
+          ></progress>
+          <p id="task-result" class="task-result"></p>
+          <details class="plan" id="plan" hidden>
+            <summary data-i18n="plan"></summary>
+            <ol id="plan-list"></ol>
+          </details>
+          <details class="trace">
+            <summary>Screenshots</summary>
+            <div class="wall" id="wall"></div>
+          </details>
+        </section>
+        <details class="activity-panel">
+          <summary>History</summary>
+          <div class="panel-heading">
+            <div class="tabs">
+              <button class="selected" data-feed="activity">Activity</button
+              ><button data-feed="history">Tasks</button>
+            </div>
+            <small id="feed-caption" hidden></small>
+          </div>
+          <ol id="log" class="activity-feed">
+            <li class="empty">No activity</li>
+          </ol>
+          <div id="history" hidden></div>
+        </details>
+        <details id="provider-settings" class="workflow-panel">
+          <summary>Settings</summary>
+          <div class="preferences">
+            <button class="motion" id="motion"></button>
+            <div class="lang" id="lang">
+              <button data-lang="en">EN</button
+              ><button data-lang="zh">中文</button>
+            </div>
+          </div>
+          <form id="providers-form">
+            <div id="provider-fields"></div>
+            <small>Blank key: keep. New URL: enter a new key.</small>
+            <div class="task-actions">
+              <button id="save-providers" class="primary" type="submit">
+                Save</button
+              ><span id="provider-result" role="status"></span>
+            </div>
+          </form>
+        </details>
+      </section>
+    </main>
+    <dialog id="zoom">
+      <div class="zoombox">
+        <img id="zoom-img" alt="Task screenshot" />
+        <div class="overlay" id="zoom-overlay"></div>
+      </div>
+      <p id="zoom-text"></p>
+    </dialog>
+    <script src="/static/i18n.js"></script>
+    <script src="/static/app.js"></script>
+  </body>
 </html>

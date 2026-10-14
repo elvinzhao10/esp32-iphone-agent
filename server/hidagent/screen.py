@@ -97,6 +97,13 @@ class Screen:
         while time.time() - self.updated < quiet and time.time() - started < most:
             await asyncio.sleep(0.1)
 
+    async def after_action(self) -> bool:
+        """A post-command frame, without waiting for an always-streaming video to go quiet."""
+        frame = await self.fresh(time.time(), timeout=.6)
+        if frame is not None:
+            await asyncio.sleep(.08)  # one short paint allowance; caller observes further animation if needed
+        return frame is not None
+
     async def fresh(self, since: float, timeout: float = 0.8) -> bytes | None:
         """The first frame received after `since`, or None if none arrives in time."""
         deadline = time.time() + timeout

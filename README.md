@@ -206,6 +206,16 @@ server/     agent, web UI, screen capture and board link (Python, FastAPI)
             serve/: optional minimal server to host a Hugging Face vision model yourself
 ```
 
+## Remote agents, MCP, and CLI
+
+A stronger agent can control the iPhone directly through screenshot and control tools,
+or delegate a goal to the built-in vision agent and poll its task ID for progress,
+results, and cancellation. The CLI and optional controller-side MCP bridge share
+the existing API; no extra agent framework is required on the Pi.
+
+See [Remote agents and task delegation](docs/remote-agents.md) for installation,
+MCP configuration, HTTP examples, Tailscale access, and structured actor mode.
+
 ## Roadmap
 
 - [ ] Test a fully local setup with DiffusionGemma (`server/serve/` has an experimental OpenAI-compatible server)
@@ -270,3 +280,18 @@ Other routes: WebDriverAgent/XCUITest-based tools such as [mobile-mcp](https://g
 ## License
 
 [MIT](LICENSE)
+
+### Portable interaction host
+
+Use a Raspberry Pi, Mac, or Linux computer, with a remote agent or one running on
+the same machine. The MCP bridge is agent-independent; REST/OpenAPI and the JSON
+CLI expose the same controls. Finite recipes execute up to 32 actions without
+model calls or persistent conversation memory. Optional Jev routing chooses known
+recipes from observed text context; the vision agent remains optional for unfamiliar
+tasks. The dashboard includes System/Light/Dark themes and follows live device
+aspect ratios. iPad profiles are experimental and require separate calibration.
+See [portable hosts, workflows, Jev, and device profiles](docs/remote-agents.md#portable-device-host-and-lightweight-execution).
+
+Manual control now includes double/triple clicks, long press, a live keyboard,
+editing shortcuts, and iPhone/iPad navigation profiles. Old endpoints and ESP32
+firmware stay compatible. See [gesture limits and repeatable live trials](docs/remote-agents.md#gestures-keyboard-input-and-fast-execution).

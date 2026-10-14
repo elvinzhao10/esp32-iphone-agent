@@ -13,10 +13,15 @@ class LLM:
     def __init__(self, base_url: str, model: str, api_key: str = "", extra: dict | None = None,
                  token_param: str = "auto"):
         self.model, self.extra = model, extra or {}
+        self.authenticated = bool(api_key)
         # "auto": send max_tokens; switch for good if the server asks for max_completion_tokens (newer OpenAI models)
         self.token_param, self._auto = (token_param, False) if token_param in TOKEN_PARAMS else ("max_tokens", True)
         headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
         self._http = httpx.AsyncClient(base_url=base_url.rstrip("/"), headers=headers, timeout=120)
+
+    @property
+    def ready(self) -> bool:
+        return bool(self.model) and (self._http.base_url.host != "api.openai.com" or self.authenticated)
 
     @classmethod
     def from_env(cls, role: str) -> "LLM":
@@ -27,16 +32,28 @@ class LLM:
                    env("API_KEY"), json.loads(env("EXTRA_BODY", "{}")), env("TOKEN_PARAM", "auto"))
 
     async def chat(self, system: str, text: str, image: bytes | None = None,
-                   max_tokens: int = 600, temperature: float = 0) -> str:
+                   max_tokens: int = 600, temperature: float = 0, tools: list[dict] | None = None) -> str:
         content = [{"type": "text", "text": text}]
         if image:
             url = "data:image/jpeg;base64," + base64.b64encode(image).decode()
             content.insert(0, {"type": "image_url", "image_url": {"url": url}})
         body = {"model": self.model, "temperature": temperature, **self.extra,
                 "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}]}
+        if tools:
+            body.update(tools=tools, tool_choice="required", parallel_tool_calls=False)
         r = await self._http.post("/chat/completions", json={self.token_param: max_tokens, **body})
         if r.status_code == 400 and self._auto and "max_completion_tokens" in r.text:
             self.token_param, self._auto = "max_completion_tokens", False
             r = await self._http.post("/chat/completions", json={self.token_param: max_tokens, **body})
         r.raise_for_status()
-        return r.json()["choices"][0]["message"]["content"] or ""
+        message = r.json()["choices"][0]["message"]
+        if tools:
+            calls = message.get("tool_calls") or []
+            if len(calls) != 1:
+                raise ValueError("actor must return exactly one action tool call")
+            function = calls[0]["function"]
+            arguments = json.loads(function["arguments"])
+            if not isinstance(arguments, dict) or "action" in arguments:
+                raise ValueError("invalid action tool arguments")
+            return json.dumps({"action": function["name"], **arguments})
+        return message.get("content") or ""
