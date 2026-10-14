@@ -354,3 +354,37 @@ def test_action_returns_post_action_image_with_precision_and_no_blind_execution(
             assert len(calls) == 2
 
     asyncio.run(scenario())
+
+
+def test_shutdown_closes_an_open_controller_connection(api, monkeypatch):
+    from hidagent.device import Device
+
+    async def scenario():
+        device = Device()
+        original_serve = device.serve
+        port = None
+
+        async def serve(host, requested_port):
+            nonlocal port
+            server = await original_serve("127.0.0.1", 0)
+            port = server.sockets[0].getsockname()[1]
+            return server
+
+        async def close_http(): pass
+
+        device.serve = serve
+        monkeypatch.setattr(api, "device", device)
+        api.screen.start = lambda: None
+        api.screen.stop = lambda: None
+        api.agent.actor._http = SimpleNamespace(aclose=close_http)
+        api.agent.planner._http = SimpleNamespace(aclose=close_http)
+        async with api.lifespan(api.app):
+            reader, writer = await asyncio.open_connection("127.0.0.1", port)
+            writer.write(b"hello test 10\n")
+            await writer.drain()
+            assert await device.wait_connected(1)
+        assert await asyncio.wait_for(reader.read(), 1) == b""
+        writer.close()
+        await writer.wait_closed()
+
+    asyncio.run(asyncio.wait_for(scenario(), 3))

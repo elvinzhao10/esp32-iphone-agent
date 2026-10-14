@@ -50,7 +50,12 @@ async def lifespan(_):
             pass
         screen.stop()
         server.close()
-        await server.wait_closed()
+        if device._writer is not None:
+            device._writer.close()
+        try:
+            await asyncio.wait_for(server.wait_closed(), 5)
+        except asyncio.TimeoutError:
+            pass  # the process is exiting; do not hang on an abandoned controller socket
         await agent.actor._http.aclose()
         await agent.planner._http.aclose()
 
