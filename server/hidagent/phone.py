@@ -215,9 +215,8 @@ class Phone:
         if name not in SHORTCUTS:
             raise ValueError("unknown keyboard shortcut")
         if os.environ.get("DEVICE_KIND", "iphone") == "iphone" and name == "search":
-            await self.go_home()
-            if self.screen is not None:
-                await self.screen.settled()
+            # Caller must observe Home first. A missed Home gesture followed by this
+            # swipe would otherwise act inside an unrelated app.
             await self.swipe(.5, .35, .5, .65, hold=False)
         elif os.environ.get("DEVICE_KIND", "iphone") == "iphone" and name == "switch_app":
             await self.swipe(.5, .995, .5, .6, hold=True)

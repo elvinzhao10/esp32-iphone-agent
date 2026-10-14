@@ -44,7 +44,7 @@ async def run(args):
             if not args.preflight_confirmed:
                 reply = await verifier.chat("Answer YES or NO only based on the screenshot.",
                                             "Is this iOS Spotlight with its search field focused and keyboard visible?",
-                                            client.screenshot(), max_tokens=100)
+                                            client.screenshot(), max_tokens=600)
                 if reply.strip().upper() != "YES":
                     raise RuntimeError("Spotlight precondition not verified; no text trial started")
             modes = args.modes.split(",")
@@ -99,8 +99,9 @@ async def run(args):
                         reply = await verifier.chat("Answer YES or NO only based on visible evidence.",
                                                     "Is this Spotlight, with the search query exactly Calendar? "
                                                     "A search result mentioning Calendar alone is not enough.",
-                                                    shot, max_tokens=100)
-                        row["verified"] = reply.strip().upper() == "YES"
+                                                    shot, max_tokens=600)
+                        answer = reply.strip().upper()
+                        row["verified"] = {"YES": True, "NO": False}.get(answer)
                         row["verification_reply"] = reply[:200]
                     except Exception as e:
                         row["verified"], row["verification_error"] = None, str(e)[:200]

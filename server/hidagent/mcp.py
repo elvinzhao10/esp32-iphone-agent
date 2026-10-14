@@ -197,6 +197,7 @@ def create_server(url: str | None = None):
     def iphone_shortcut(name: str) -> list:
         """Keyboard shortcut: search, switch_app, select_all, copy, paste, undo, redo, next,
         previous, activate, escape, keyboard_home. iPad/app/iOS support varies; inspect the result.
+        On iPhone, search swipes down: first visually confirm the Home Screen.
         Clipboard is the device clipboard, not the controlling computer's clipboard.
         """
         with connect() as client:

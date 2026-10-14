@@ -416,7 +416,8 @@ lines, so boundary spaces are preserved through `key space` reports. Unicode/IME
 composition cannot be faithfully injected through this ASCII keyboard path and is
 rejected visibly rather than simulated incorrectly.
 
-On iPhone, named Search uses Home then a downward Home Screen swipe; Switch App
+On iPhone, named Search swipes down and requires the caller to visually confirm
+Home first. It never chains an unverified Home gesture into another swipe. Switch App
 uses the bottom-edge held gesture. On the `ipad` profile these use Command-Space
 and Command-Tab. Raw key tools stay literal and unchanged. Apple documents iPad
 [keyboard navigation](https://support.apple.com/en-us/102393); actual shortcuts vary

@@ -72,7 +72,7 @@ def catalog() -> dict[str, Recipe]:
                precondition="Controller connected and screen mirroring live",
                settle="frame", steps=[{"action": "home"}]),
         Recipe(name="system-search", description="Toggle system Spotlight search only; do not type or open an app",
-               precondition="Controller connected and screen mirroring live",
+               precondition="iPhone Home Screen visibly confirmed, or iPad keyboard connected; mirroring live",
                settle="frame", steps=[{"action": "shortcut", "arguments": {"name": "search"}}]),
     ]
     result = {r.name: r for r in builtins}

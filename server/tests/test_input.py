@@ -61,6 +61,19 @@ def test_cancelled_hold_releases_mouse_button(tmp_path):
     asyncio.run(run())
 
 
+def test_iphone_search_does_not_chain_unverified_home(tmp_path, monkeypatch):
+    monkeypatch.setenv("DEVICE_KIND", "iphone")
+    phone = Phone(Board(), tmp_path / "calibration.json")
+    gestures = []
+
+    async def home(): pytest.fail("Home must be observed separately before Search")
+    async def swipe(*args, **kwargs): gestures.append((args, kwargs))
+    monkeypatch.setattr(phone, "go_home", home)
+    monkeypatch.setattr(phone, "swipe", swipe)
+    asyncio.run(phone.shortcut("search"))
+    assert gestures == [((.5, .35, .5, .65), {"hold": False})]
+
+
 @pytest.mark.parametrize("action", [
     {"action": "multi_tap", "x": 500, "y": 500, "count": 4},
     {"action": "multi_tap", "x": 500, "y": 500, "count": True},
