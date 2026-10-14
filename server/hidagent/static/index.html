@@ -53,6 +53,12 @@
           ><button id="cal" data-i18n="calibrate"></button>
         </div>
         <div class="preview-options">
+          <select id="gesture-mode" aria-label="Gesture">
+            <option value="1">Tap</option>
+            <option value="2">Double</option>
+            <option value="3">Triple</option>
+            <option value="hold">Hold</option>
+          </select>
           <select id="preview-size" aria-label="Preview size">
             <option value="1">Fit</option>
             <option value="0.75">Small</option>
@@ -66,6 +72,28 @@
         <p class="caption" id="caption" hidden></p>
         <details class="manual">
           <summary>Keyboard</summary>
+          <div class="shortcut-tray">
+            <button data-shortcut="search" title="Spotlight">⌘ Space</button
+            ><button data-shortcut="switch_app" title="Switch app">⌘ Tab</button
+            ><button data-shortcut="undo" title="Undo">↶</button
+            ><button data-shortcut="redo" title="Redo">↷</button
+            ><button data-shortcut="escape" title="Escape">Esc</button>
+          </div>
+          <input
+            id="live-keyboard"
+            aria-label="Live keyboard"
+            placeholder="Type here to send keys live"
+            autocomplete="off"
+            autocapitalize="off"
+            spellcheck="false"
+          />
+          <div class="preview-options">
+            <label><input id="replace-text" type="checkbox" /> Replace</label
+            ><label
+              ><input id="submit-text" type="checkbox" /> Enter after
+              typing</label
+            >
+          </div>
           <div class="row">
             <input
               id="text"
@@ -149,6 +177,10 @@
             <p id="model-warning" class="notice" hidden></p>
             <details class="advanced">
               <summary>Options</summary>
+              <label class="fast-workflows"
+                ><input id="fast-workflows" type="checkbox" checked /> Fast
+                workflows</label
+              >
               <div class="task-limits">
                 <label
                   >Steps<input

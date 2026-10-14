@@ -22,7 +22,9 @@ $("theme").onclick = () => {
 };
 systemTheme.addEventListener("change", applyTheme);
 applyTheme();
-let recipes = [];
+let recipes = [],
+  routerReady = false,
+  startingTask = false;
 async function loadWorkflows() {
   try {
     const response = await fetch("/api/workflows");
@@ -222,7 +224,9 @@ function overlay(s) {
   ) =>
     `<polyline class="flow" points="${pts(list)}" style="stroke:#000;fill:none" stroke-width="2.5" vector-effect="non-scaling-stroke" stroke-linecap="round"/>`;
   switch (s.action) {
-    case "tap": {
+    case "tap":
+    case "multi_tap":
+    case "long_press": {
       // red, so the tap point stands out from the yellow swipe paths
       const ring = (cls, r, w, color) =>
         `<ellipse class="${cls}" cx="${s.x}" cy="${s.y}" rx="${r}" ry="${r * aspect}" style="stroke:${color};fill:none" stroke-width="${w}" vector-effect="non-scaling-stroke"/>`;
@@ -275,7 +279,7 @@ function overlay(s) {
 }
 // the 👆 sits on top of the svg as text, so it is not stretched
 function hand(s) {
-  if (s.action !== "tap") return "";
+  if (!["tap", "multi_tap", "long_press"].includes(s.action)) return "";
   return `<span class="hand" style="left:${s.x / 10}%;top:${s.y / 10}%">👆</span>`;
 }
 
@@ -449,6 +453,7 @@ live.addEventListener("pointerdown", (e) => {
   down = {
     ...frac(e),
     points: [frac(e)],
+    startedAt: performance.now(),
     startX: e.clientX,
     startY: e.clientY,
   };
@@ -478,7 +483,21 @@ live.addEventListener("pointerup", async (e) => {
     calibrating = !result;
     calibrationHint(result ? "calOk" : "calNow");
   } else if (Math.hypot(e.clientX - from.startX, e.clientY - from.startY) < 7) {
-    await input("/api/tap", { ...up, precise: $("precision").checked });
+    const gesture = $("gesture-mode").value;
+    const duration = performance.now() - from.startedAt;
+    if (gesture === "hold" || duration >= 450)
+      await input("/api/long_press", {
+        ...up,
+        duration_ms: Math.min(2000, Math.max(600, Math.round(duration))),
+        precise: $("precision").checked,
+      });
+    else if (gesture !== "1")
+      await input("/api/multi_tap", {
+        ...up,
+        count: Number(gesture),
+        precise: $("precision").checked,
+      });
+    else await input("/api/tap", { ...up, precise: $("precision").checked });
   } else
     await input("/api/gesture", { points: [...from.points, up], flick: true });
 });
@@ -588,21 +607,47 @@ $("cal").addEventListener("click", async () => {
   calibrationHint(r.auto ? "calOk" : "calNow");
 });
 $("type").addEventListener("click", async () => {
-  if (await input("/api/type", { text: $("text").value })) $("text").value = "";
+  if (
+    await input("/api/edit_text", {
+      text: $("text").value,
+      replace: $("replace-text").checked,
+      submit: $("submit-text").checked,
+    })
+  )
+    $("text").value = "";
 });
 $("press").addEventListener("click", () =>
   input("/api/key", { text: $("key").value }),
 );
 async function start(goal) {
   if (!goal.trim()) return say("needTask");
-  const result = await post("/api/tasks", {
-    goal,
-    max_steps: Number($("max-steps").value),
-    timeout_s: Number($("task-timeout").value),
-  });
-  if (result) {
-    viewedRun = null;
-    choosePanel("local");
+  if (startingTask) return;
+  startingTask = true;
+  $("run").disabled = true;
+  try {
+    let result;
+    if ($("fast-workflows").checked && routerReady) {
+      $("msg").textContent = "Routing…";
+      result = await post("/api/workflows/dispatch", {
+        goal,
+        context:
+          "Controller connected and screen mirroring live. Screen contents have not been interpreted.",
+      });
+      if (!result) return;
+    }
+    if (!result || result.needs_remote)
+      result = await post("/api/tasks", {
+        goal,
+        max_steps: Number($("max-steps").value),
+        timeout_s: Number($("task-timeout").value),
+      });
+    if (result?.id) {
+      viewedRun = null;
+      choosePanel("local");
+    }
+  } finally {
+    startingTask = false;
+    poll();
   }
 }
 $("run").addEventListener("click", () => start($("task").value.trim()));
@@ -782,16 +827,22 @@ async function poll() {
       .querySelectorAll("li")
       .forEach((li) => li.classList.toggle("done", Boolean(s[li.dataset.key])));
     const ready =
-      s.device && s.screen && s.calibrated && s.configuration.model_ready;
+      s.device &&
+      s.screen &&
+      s.calibrated &&
+      (s.configuration.model_ready || routerReady);
     $("save-providers").disabled = a.running || !own || c.mode === "external";
-    $("run").disabled = a.running || !ready || !own || c.mode === "external";
+    $("run").disabled =
+      startingTask || a.running || !ready || !own || c.mode === "external";
     $("examples")
       .querySelectorAll("button")
       .forEach((b) => {
         b.disabled = $("run").disabled;
       });
     document
-      .querySelectorAll("[data-post], #cal, #type, #press")
+      .querySelectorAll(
+        "[data-post], [data-shortcut], #live-keyboard, #cal, #type, #press",
+      )
       .forEach((b) => {
         b.disabled = !inputAllowed;
       });
@@ -858,7 +909,9 @@ async function poll() {
     $("input-lock").hidden = false;
     $("input-lock").textContent = "Connection lost";
     document
-      .querySelectorAll("[data-post], #cal, #type, #press")
+      .querySelectorAll(
+        "[data-post], [data-shortcut], #live-keyboard, #cal, #type, #press",
+      )
       .forEach((b) => {
         b.disabled = true;
       });
@@ -878,6 +931,10 @@ async function loadProviders() {
     const response = await fetch("/api/settings");
     if (!response.ok) throw new Error("Provider settings unavailable");
     const settings = await response.json();
+    routerReady = Boolean(
+      settings.jev.model &&
+        (settings.jev.key_set || settings.jev.protocol === "openai"),
+    );
     $("provider-fields").replaceChildren();
     for (const [role, title] of [
       ["actor", "Actor"],
@@ -966,3 +1023,101 @@ $("open-settings").onclick = () => {
   if (panel.open)
     panel.scrollIntoView({ behavior: "smooth", block: "nearest" });
 };
+
+// Focused keyboard forwarding only; browser/global shortcuts remain untouched elsewhere.
+let keyQueue = [],
+  keySending = false;
+function queueKey(path, body) {
+  if (!inputAllowed) return;
+  const last = keyQueue.at(-1);
+  if (
+    path === "/api/type" &&
+    last?.path === path &&
+    last.body.text.length + body.text.length <= 4000
+  )
+    last.body.text += body.text;
+  else if (keyQueue.length < 32) keyQueue.push({ path, body });
+  else {
+    $("msg").textContent = "Keyboard queue full";
+    return;
+  }
+  flushKeys();
+}
+async function flushKeys() {
+  if (keySending) return;
+  keySending = true;
+  try {
+    while (keyQueue.length && inputAllowed) {
+      if (actionBusy) {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+        continue;
+      }
+      const item = keyQueue.shift();
+      if (!(await input(item.path, item.body))) {
+        keyQueue = [];
+        break;
+      }
+    }
+    if (!inputAllowed) keyQueue = [];
+  } finally {
+    keySending = false;
+  }
+}
+function queueText(text) {
+  if (!text || !/^[\x20-\x7e]+$/.test(text)) {
+    $("msg").textContent = "USB keyboard supports ASCII only";
+    return;
+  }
+  queueKey("/api/type", { text });
+}
+$("live-keyboard").addEventListener("input", (e) => {
+  if (e.isComposing) return;
+  const text = e.target.value;
+  e.target.value = "";
+  if (text) queueText(text);
+});
+$("live-keyboard").addEventListener("keydown", (e) => {
+  if (e.isComposing) return;
+  const special = {
+    Enter: "enter",
+    Backspace: "backspace",
+    Tab: "tab",
+    ArrowUp: "up",
+    ArrowDown: "down",
+    ArrowLeft: "left",
+    ArrowRight: "right",
+  };
+  const mods = [
+    e.metaKey ? "cmd" : null,
+    e.ctrlKey ? "ctrl" : null,
+    e.altKey ? "alt" : null,
+    e.shiftKey ? "shift" : null,
+  ].filter(Boolean);
+  if (
+    special[e.key] ||
+    ((e.metaKey || e.ctrlKey || e.altKey) &&
+      e.key.length === 1 &&
+      e.key !== "+")
+  ) {
+    e.preventDefault();
+    e.stopPropagation();
+    queueKey("/api/key", {
+      text: [
+        ...mods,
+        special[e.key] || (e.key === " " ? "space" : e.key.toLowerCase()),
+      ].join("+"),
+    });
+  }
+});
+live.addEventListener("contextmenu", (e) => {
+  e.preventDefault();
+  if (e.button === 2 && inputAllowed && !calibrating)
+    input("/api/long_press", { ...frac(e), duration_ms: 600 });
+});
+document
+  .querySelectorAll("[data-shortcut]")
+  .forEach(
+    (button) =>
+      (button.onclick = () =>
+        input("/api/shortcut", { name: button.dataset.shortcut })),
+  );

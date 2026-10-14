@@ -20,7 +20,7 @@ def test_jev_routes_only_known_recipes_and_escalates(monkeypatch):
         assert "escalate" in body["questions"]["workflow"]["criteria"]
         assert "Authorization" in request.headers
         return httpx.Response(200, json={"answers": {"workflow": {
-            "type": "choice", "choice": choice, "confidence": confidence}}})
+            "type": "choice", "choice": choice, "confidence": confidence}, "eligible": {"noul": .99}}})
 
     async def run():
         return await route("Search", "Home screen visible", {"search": recipe},

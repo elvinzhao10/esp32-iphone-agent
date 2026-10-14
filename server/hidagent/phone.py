@@ -9,6 +9,7 @@ work for any frame size.
 import asyncio
 import json
 import logging
+import os
 import time
 from collections import deque
 from pathlib import Path
@@ -179,6 +180,50 @@ class Phone:
         await self.device.send("click")
         await asyncio.sleep(TAP_GAP)
 
+    async def multi_tap(self, x: float, y: float, count: int = 2, interval_ms: int = 100,
+                        aim: bool = False) -> None:
+        if count not in (1, 2, 3) or not 40 <= interval_ms <= 400:
+            raise ValueError("multi-tap requires 1–3 clicks and a 40–400 ms interval")
+        await self.point(x, y, aim)
+        for index in range(count):
+            await self.device.send("click")
+            if index < count - 1:
+                await asyncio.sleep(interval_ms / 1000)
+
+    async def long_press(self, x: float, y: float, duration_ms: int = 600, aim: bool = False) -> None:
+        if not 300 <= duration_ms <= 2000:
+            raise ValueError("long press must be 300–2000 ms")
+        await self.point(x, y, aim)
+        try:
+            await self.device.send("press")
+            await asyncio.sleep(duration_ms / 1000)
+        finally:
+            await self.device.send("release")
+
+    async def edit_text(self, text: str, replace: bool = False, submit: bool = False) -> None:
+        """Edit a visibly focused field. No host clipboard access or Unicode emulation."""
+        if not text or not text.isascii() or any(ord(c) < 32 for c in text):
+            raise ValueError("text must be printable ASCII on one line")
+        if replace:
+            await self.key("cmd+a")
+        await self.type(text)
+        if submit:
+            await self.key("enter")
+
+    async def shortcut(self, name: str) -> None:
+        from .actions import SHORTCUTS
+        if name not in SHORTCUTS:
+            raise ValueError("unknown keyboard shortcut")
+        if os.environ.get("DEVICE_KIND", "iphone") == "iphone" and name == "search":
+            await self.go_home()
+            if self.screen is not None:
+                await self.screen.settled()
+            await self.swipe(.5, .35, .5, .65, hold=False)
+        elif os.environ.get("DEVICE_KIND", "iphone") == "iphone" and name == "switch_app":
+            await self.swipe(.5, .995, .5, .6, hold=True)
+        else:
+            await self.key(SHORTCUTS[name])
+
     async def swipe(self, x1: float, y1: float, x2: float, y2: float, hold: bool = True) -> None:
         await self.drag([(x1, y1), (x2, y2)], hold)
 
@@ -203,7 +248,16 @@ class Phone:
         await self.device.send(f"scroll {lines} 0")
 
     async def type(self, text: str) -> None:
-        await self.device.send(f"type {text}")
+        # Old firmware trims protocol lines. Preserve boundary spaces with named key reports.
+        leading = len(text) - len(text.lstrip(" "))
+        trailing = len(text) - len(text.rstrip(" "))
+        for _ in range(leading):
+            await self.key("space")
+        middle = text.strip(" ")
+        if middle:
+            await self.device.send(f"type {middle}")
+            for _ in range(trailing):
+                await self.key("space")
 
     async def key(self, combo: str) -> None:
         await self.device.send(f"key {combo}")

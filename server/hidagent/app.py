@@ -9,6 +9,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -89,12 +90,14 @@ async def lifespan(_):
             await asyncio.wait_for(server.wait_closed(), 5)
         except asyncio.TimeoutError:
             pass  # the process is exiting; do not hang on an abandoned controller socket
+        await router_http.aclose()
         await agent.actor._http.aclose()
         await agent.planner._http.aclose()
 
 
 control_lock = asyncio.Lock()
 ownership = ControlState()
+router_http = httpx.AsyncClient(timeout=8, trust_env=False)
 
 
 def identity(request: Request):
@@ -178,8 +181,10 @@ async def act(coro, request: Request, capture: bool = False):
             detail = getattr(request.state, "action", request.url.path.rsplit("/", 1)[-1].title())
             ownership.record("action", owner, detail)
             if capture:
-                await screen.settled(quiet=0.2, least=0.2, most=1.5)
-                return {"ok": True, "control": ownership.status(agent.run_info(), agent.running),
+                fresh = (await screen.after_action() if hasattr(screen, "after_action") else
+                         await screen.settled(quiet=0.2, least=0.2, most=1.5))
+                return {"ok": True, "fresh_frame": bool(fresh),
+                        "control": ownership.status(agent.run_info(), agent.running),
                         "frame": observation() if screen.live else None}
     except (DeviceError, RuntimeError) as e:
         raise HTTPException(409, str(e)) from e
@@ -416,7 +421,8 @@ async def observe():
 
 
 class ActionRequest(BaseModel):
-    action: Literal["tap", "swipe", "scroll", "type", "key", "home", "back"]
+    action: Literal["tap", "swipe", "scroll", "type", "key", "home", "back",
+                    "multi_tap", "long_press", "edit_text", "shortcut"]
     arguments: dict = Field(default_factory=dict)
 
 
@@ -428,7 +434,9 @@ async def perform_action(body: ActionRequest, request: Request):
     name, args = body.action, body.arguments
     request.state.action = name.title()
     try:
-        if name == "tap":
+        if name in ("multi_tap", "long_press", "edit_text", "shortcut"):
+            coro = extended_action(name, args)
+        elif name == "tap":
             p = Tap(**args)
             coro = phone.tap(p.x, p.y, aim=p.precise)
         elif name == "swipe":
@@ -470,6 +478,9 @@ def capabilities():
             "interfaces": {"mcp": "stdio bridge on any client host", "rest": "/openapi.json", "cli": "iphone-agent"},
             "workflow": {"max_steps": 32, "persistent_memory": False,
                          "jev_ready": bool(load_settings().jev.api_key)},
+            "input": {"gestures": ["tap", "multi_tap", "long_press", "swipe", "path", "scroll"],
+                      "keyboard": ["type", "key", "edit_text", "shortcut"], "multi_touch": False,
+                      "globe_key": False, "firmware_update_required": False},
             "limitations": ["ASCII keyboard input", "one device per server instance",
                             "trusted private network required"]}
 
@@ -523,7 +534,7 @@ async def workflow_route(body: RouteRequest):
     """Optional text-only Jev selection. This endpoint never moves the device."""
     from .workflows import catalog, route
     try:
-        return await route(body.goal, body.context, catalog())
+        return await route(body.goal, body.context, catalog(), client=router_http)
     except (RuntimeError, ValueError, OSError) as e:
         raise HTTPException(409, str(e)) from e
     except Exception as e:
@@ -559,3 +570,102 @@ async def manual_gesture(body: Gesture, request: Request):
     if not screen.live:
         raise HTTPException(409, "screen mirroring is required")
     return await act(phone.drag([(p.x, p.y) for p in body.points], hold=not body.flick), request)
+
+
+class MultiTap(Tap):
+    count: int = Field(default=2, ge=1, le=3, strict=True)
+    interval_ms: int = Field(default=100, ge=40, le=400, strict=True)
+    precise: bool = False
+
+
+class LongPress(Tap):
+    duration_ms: int = Field(default=600, ge=300, le=2000, strict=True)
+    precise: bool = False
+
+
+class EditText(Text):
+    replace: bool = Field(default=False, strict=True)
+    submit: bool = Field(default=False, strict=True)
+
+
+class Shortcut(BaseModel):
+    name: str
+
+
+def extended_action(name, args):
+    from .actions import SHORTCUTS
+    if name == "multi_tap":
+        p = MultiTap(**args)
+        return phone.multi_tap(p.x, p.y, p.count, p.interval_ms, aim=p.precise)
+    if name == "long_press":
+        p = LongPress(**args)
+        return phone.long_press(p.x, p.y, p.duration_ms, aim=p.precise)
+    if name == "edit_text":
+        t = EditText(**args)
+        if not t.text.isascii() or any(ord(c) < 32 for c in t.text):
+            raise HTTPException(422, "text must be printable ASCII on one line")
+        return phone.edit_text(t.text, t.replace, t.submit)
+    p = Shortcut(**args)
+    if p.name not in SHORTCUTS:
+        raise HTTPException(422, "unknown keyboard shortcut")
+    return phone.shortcut(p.name)
+
+
+@app.post("/api/multi_tap")
+async def multi_tap(body: MultiTap, request: Request):
+    if not screen.live:
+        raise HTTPException(409, "screen mirroring is required")
+    return await act(extended_action("multi_tap", body.model_dump()), request)
+
+
+@app.post("/api/long_press")
+async def long_press(body: LongPress, request: Request):
+    if not screen.live:
+        raise HTTPException(409, "screen mirroring is required")
+    return await act(extended_action("long_press", body.model_dump()), request)
+
+
+@app.post("/api/edit_text")
+async def edit_text(body: EditText, request: Request):
+    if not screen.live:
+        raise HTTPException(409, "screen mirroring is required")
+    return await act(extended_action("edit_text", body.model_dump()), request)
+
+
+@app.post("/api/shortcut")
+async def shortcut(body: Shortcut, request: Request):
+    if not screen.live:
+        raise HTTPException(409, "screen mirroring is required")
+    return await act(extended_action("shortcut", body.model_dump()), request)
+
+
+@app.post("/api/workflows/dispatch", status_code=202)
+async def workflow_dispatch(body: RouteRequest, request: Request):
+    """Explicit hybrid operation: confidence-gated routing, then bounded recipe execution."""
+    from .workflows import catalog, route
+    started = False
+    client_id = identity(request)[0]
+    try:
+        async with control(request):
+            recipes = catalog()
+        decision = await route(body.goal, body.context, recipes, client=router_http)
+        async with control(request, claim=False):
+            if decision["needs_remote"]:
+                return {**decision, "state": "needs_remote"}
+            recipe = recipes[decision["workflow"]]
+            _, owner, source = identity(request)
+            run_id = agent.start(recipe.description, len(recipe.steps), 60,
+                                 source=source, owner=owner, workflow=recipe)
+            task_ownership(request)
+            started = True
+            ownership.record("workflow", owner, "Jev: " + recipe.name)
+            return {**decision, "id": run_id, "state": "running", "status_url": f"/api/tasks/{run_id}"}
+    except HTTPException:
+        raise
+    except (ValueError, RuntimeError, OSError) as e:
+        raise HTTPException(409, "Workflow routing or execution unavailable") from e
+    except Exception as e:
+        raise HTTPException(502, "Router unavailable; no fallback device actions were started") from e
+    finally:
+        if not started and ownership.lease and ownership.lease["client_id"] == client_id:
+            ownership.release(client_id)

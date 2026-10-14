@@ -35,6 +35,25 @@ def parser() -> argparse.ArgumentParser:
     route = sub.add_parser("route", help="Jev recipe selection only; does not execute")
     route.add_argument("goal")
     route.add_argument("context", help="current observed screen description")
+    multi = sub.add_parser("multi-tap")
+    multi.add_argument("x", type=float)
+    multi.add_argument("y", type=float)
+    multi.add_argument("--count", type=int, choices=(1, 2, 3), default=2)
+    multi.add_argument("--interval", type=int, default=100)
+    hold = sub.add_parser("long-press")
+    hold.add_argument("x", type=float)
+    hold.add_argument("y", type=float)
+    hold.add_argument("--duration", type=int, default=600)
+    edit = sub.add_parser("edit-text")
+    edit.add_argument("text")
+    edit.add_argument("--replace", action="store_true")
+    edit.add_argument("--submit", action="store_true")
+    shortcut = sub.add_parser("shortcut")
+    shortcut.add_argument("name")
+    dispatch = sub.add_parser("dispatch")
+    dispatch.add_argument("goal")
+    dispatch.add_argument("context")
+    dispatch.add_argument("--wait", action="store_true")
     calibration = sub.add_parser("calibrate")
     calibration.add_argument("--pointer", nargs=2, type=float, metavar=("X", "Y"))
     task = sub.add_parser("task")
@@ -59,6 +78,16 @@ def main(argv=None) -> int:
         with IPhoneClient(args.url) as client:
             match args.command:
                 case "status": result = client.status()
+                case "multi-tap": result = client.action("multi_tap", x=args.x, y=args.y,
+                                                        count=args.count, interval_ms=args.interval)
+                case "long-press": result = client.action("long_press", x=args.x, y=args.y, duration_ms=args.duration)
+                case "edit-text": result = client.action("edit_text", text=args.text,
+                                                        replace=args.replace, submit=args.submit)
+                case "shortcut": result = client.action("shortcut", name=args.name)
+                case "dispatch":
+                    result = client.dispatch(args.goal, args.context)
+                    if args.wait and result.get("id"):
+                        result = client.wait(result["id"], 75)
                 case "capabilities": result = client.capabilities()
                 case "workflows": result = {"workflows": client.workflows()}
                 case "route": result = client.route(args.goal, args.context)

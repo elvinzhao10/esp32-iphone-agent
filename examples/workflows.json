@@ -4,8 +4,33 @@
     "description": "Type Settings into an already focused search field and press Enter. Does not open or navigate to search.",
     "precondition": "The intended search field is focused and empty, and the on-screen keyboard is visible.",
     "steps": [
-      {"action": "type", "arguments": {"text": "Settings"}},
-      {"action": "key", "arguments": {"combo": "enter"}}
+      {
+        "action": "type",
+        "arguments": {
+          "text": "Settings"
+        }
+      },
+      {
+        "action": "key",
+        "arguments": {
+          "combo": "enter"
+        }
+      }
+    ]
+  },
+  {
+    "name": "search-calendar",
+    "description": "Replace an already focused Spotlight search query with Calendar; do not open any result",
+    "precondition": "Spotlight search field is visibly focused with its on-screen keyboard showing",
+    "settle": "final",
+    "steps": [
+      {
+        "action": "edit_text",
+        "arguments": {
+          "text": "Calendar",
+          "replace": true
+        }
+      }
     ]
   }
 ]

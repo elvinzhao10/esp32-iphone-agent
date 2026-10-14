@@ -390,3 +390,77 @@ secrets. Blank key fields retain existing keys only if the endpoint is unchanged
 changing an endpoint clears its old key unless a replacement is supplied. Saving
 is blocked during tasks or when another controller owns the device. This remains
 a trusted-private-network service; dashboard settings do not add authentication.
+
+## Gestures, keyboard input, and fast execution
+
+Existing tap/type/key/swipe/Home/Back endpoints and old firmware remain compatible.
+New controls are additive: `/api/multi_tap` (count 1–3, interval 40–400 ms),
+`/api/long_press` (300–2000 ms), `/api/edit_text` (text, optional replace/submit),
+and `/api/shortcut` (named keyboard/navigation operation). These also work through
+`/api/control/action` with a resulting image, workflows, structured actor tools,
+CLI `multi-tap` / `long-press` / `edit-text` / `shortcut`, and the corresponding MCP
+`iphone_*` tools. `dispatch_workflow` / CLI `dispatch` explicitly routes and runs
+one known recipe; `route_workflow` remains selection-only.
+
+Choose Double/Triple/Hold in the compact gesture selector. Holding a pointer down
+also selects a long press; a mouse right-click invokes the same hold. These are
+single-pointer mouse operations. Triple click is not three-finger tap; pinch and
+simultaneous multi-touch are not available with this USB mouse descriptor.
+
+Keyboard now includes a focused live input field and shortcut buttons. Ordinary
+browser shortcuts are untouched outside that field. Printable ASCII is forwarded
+in a bounded serial queue; special keys use HID chords. Replace sends Command-A
+before typing; Submit sends Enter only when explicitly selected. Device clipboard
+copy/paste is not host clipboard synchronization. Existing firmware trims protocol
+lines, so boundary spaces are preserved through `key space` reports. Unicode/IME
+composition cannot be faithfully injected through this ASCII keyboard path and is
+rejected visibly rather than simulated incorrectly.
+
+On iPhone, named Search uses Home then a downward Home Screen swipe; Switch App
+uses the bottom-edge held gesture. On the `ipad` profile these use Command-Space
+and Command-Tab. Raw key tools stay literal and unchanged. Apple documents iPad
+[keyboard navigation](https://support.apple.com/en-us/102393); actual shortcuts vary
+with app/iPadOS/settings. Globe/Fn is not in the current firmware descriptor and
+is not falsely mapped to another key. For keyboard focus navigation enable Full
+Keyboard Access on the device when needed. Real iPad hardware remains untested.
+
+Fast capture waits at most 600 ms for a post-command frame plus an 80 ms paint
+allowance, instead of waiting for the video stream to become quiet. Responses
+include `fresh_frame`; subsequent animation may require another observation.
+Existing workflow settling defaults to `each`. `settle:frame` uses fresh frames;
+`settle:final` skips intermediate capture waits for independent keyboard steps
+only, disallowing visual checkpoints. This is useful for a known focused field.
+
+The router reuses an HTTP connection and asks workflow selection and eligibility
+in the same native TypeSafe request, then gates both in code. This follows
+[TypeSafe's parallel-question pattern](https://docs.typesafe.ai/patterns/fan-out).
+Dispatch rechecks ownership after inference; emergency stop/takeover cancels the
+pending caller's right to execute. Local tasks optionally try Fast workflows first;
+uncertain matches fall back to the existing vision agent. System Home/Search recipes
+are built in; arbitrary navigation still requires visual feedback.
+
+## Repeatable live trials
+
+The host-side runner measures replacing a focused Spotlight query with `Calendar`,
+without Enter, opening results, clipboard use, or messages. Reset to `Notes` is
+identical and untimed across modes; order rotates each trial. Execution and model
+verification are recorded separately, with screenshots kept locally on the host.
+
+```sh
+cd server
+.venv/bin/python -m hidagent.benchmark --url http://YOUR_PRIVATE_IP:8890 \
+  --output ~/.hidagent/benchmarks/input-trials --trials 3 \
+  --modes direct,edit,workflow,jev,vision
+```
+
+The phone must already show focused Spotlight and its keyboard. The runner checks
+this with the configured vision actor; `--preflight-confirmed` is only for an
+operator who has visually checked it. It stops on control loss or a failed visual
+result. Provider errors are recorded, not counted as verified success. Raw screen
+artifacts may contain personal search results; do not commit them to a public repo.
+
+For comparison, [NetEase's published UU Remote description](https://apps.apple.com/cn/app/id1642306791)
+describes remote computer control from phones/tablets. Its implementation details
+were not accessible for inspection here. This project uses AirPlay capture and a
+physical USB HID bridge on the controlled iOS device; it does not claim UU's video
+pipeline, clipboard synchronization, or native multi-touch capabilities.

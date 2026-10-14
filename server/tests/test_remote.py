@@ -468,8 +468,10 @@ def test_workflow_catalog_and_generic_discovery(api, monkeypatch, tmp_path):
 
     async def scenario():
         async with connect(api) as client:
-            assert (await client.get("/api/workflows")).json() == [
-                {**recipe, "steps": [{**recipe["steps"][0], "require_change": False}]}]
+            recipes = {r["name"]: r for r in (await client.get("/api/workflows")).json()}
+            assert recipes["known-tap"] == {**recipe, "settle": "each",
+                                            "steps": [{**recipe["steps"][0], "require_change": False}]}
+            assert {"system-home", "system-search"} <= recipes.keys()
             caps = (await client.get("/api/capabilities")).json()
             assert caps["device"]["kind"] == "ipad"
             assert caps["workflow"]["persistent_memory"] is False
@@ -535,3 +537,51 @@ def test_manual_gesture_preserves_path_and_flick_without_agent_settle(api):
                 {"x": 0, "y": 0}, {"x": 1, "y": 1}]})).status_code == 409
             assert len(calls) == 1
     asyncio.run(scenario())
+
+
+def test_extended_controls_forward_without_changing_legacy_routes(api):
+    calls = []
+
+    async def multi(*args, **kwargs): calls.append(("multi", args, kwargs))
+    async def hold(*args, **kwargs): calls.append(("hold", args, kwargs))
+    async def edit(*args, **kwargs): calls.append(("edit", args, kwargs))
+    async def shortcut(*args, **kwargs): calls.append(("shortcut", args, kwargs))
+    api.phone.multi_tap, api.phone.long_press = multi, hold
+    api.phone.edit_text, api.phone.shortcut = edit, shortcut
+
+    async def run():
+        async with connect(api) as c:
+            assert (await c.post("/api/multi_tap", json={"x": .5, "y": .5, "count": 3})).status_code == 200
+            assert (await c.post("/api/long_press", json={"x": .5, "y": .5})).status_code == 200
+            assert (await c.post("/api/edit_text", json={"text": "Calendar", "replace": True})).status_code == 200
+            assert (await c.post("/api/shortcut", json={"name": "search"})).status_code == 200
+            assert [call[0] for call in calls] == ["multi", "hold", "edit", "shortcut"]
+            assert calls[0][1][2] == 3
+            assert calls[2][1] == ("Calendar", True, False)
+            assert (await c.post("/api/shortcut", json={"name": "unsupported"})).status_code == 422
+            assert (await c.post("/api/edit_text", json={"text": "bad\ntext"})).status_code == 422
+            assert len(calls) == 4
+    asyncio.run(run())
+
+
+def test_dispatch_rechecks_ownership_after_routing(api, monkeypatch):
+    from hidagent import workflows
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def route(*args, **kwargs):
+        entered.set()
+        await release.wait()
+        return {"workflow": "system-home", "needs_remote": False, "confidence": 1}
+    monkeypatch.setattr(workflows, "route", route)
+
+    async def run():
+        async with connect(api) as c:
+            job = asyncio.create_task(c.post("/api/workflows/dispatch", json={"goal": "Go home", "context": "Live"},
+                                            headers=controller("agent")))
+            await entered.wait()
+            # Router requests must not block emergency stop; stopped callers cannot resume later.
+            assert (await c.post("/api/agent/stop")).status_code == 200
+            release.set()
+            assert (await job).status_code == 409
+            assert api.agent.run_id is None
+    asyncio.run(run())

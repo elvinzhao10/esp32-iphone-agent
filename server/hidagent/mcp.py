@@ -171,6 +171,47 @@ def create_server(url: str | None = None):
         with connect() as client:
             return client.route(goal, context)
 
+    @mcp.tool()
+    def iphone_multi_tap(x: float, y: float, count: int = 2, interval_ms: int = 100, precise: bool = False) -> list:
+        """Double/triple click one visible target. Mouse HID; does not emulate multi-finger touch."""
+        with connect() as client:
+            return with_image(client.perform("multi_tap", x=x, y=y, count=count,
+                                             interval_ms=interval_ms, precise=precise))
+
+    @mcp.tool()
+    def iphone_long_press(x: float, y: float, duration_ms: int = 600, precise: bool = False) -> list:
+        """Hold one visible target for 300–2000 ms; returns the resulting screen."""
+        with connect() as client:
+            return with_image(client.perform("long_press", x=x, y=y, duration_ms=duration_ms, precise=precise))
+
+    @mcp.tool()
+    def iphone_edit_text(text: str, replace: bool = False, submit: bool = False) -> list:
+        """Edit a visibly focused field in one call. Optional select-all and Enter. ASCII only.
+
+        submit may send a message or confirm a form; use only when the user authorized that action.
+        """
+        with connect() as client:
+            return with_image(client.perform("edit_text", text=text, replace=replace, submit=submit))
+
+    @mcp.tool()
+    def iphone_shortcut(name: str) -> list:
+        """Keyboard shortcut: search, switch_app, select_all, copy, paste, undo, redo, next,
+        previous, activate, escape, keyboard_home. iPad/app/iOS support varies; inspect the result.
+        Clipboard is the device clipboard, not the controlling computer's clipboard.
+        """
+        with connect() as client:
+            return with_image(client.perform("shortcut", name=name))
+
+    @mcp.tool()
+    def dispatch_workflow(goal: str, context: str) -> dict:
+        """Explicitly route AND execute a known workflow with Jev; escalate if uncertain.
+
+        Observe first and supply current screen context. Poll task_status; observe to verify completion.
+        Unlike route_workflow, this tool executes device actions on a confident match.
+        """
+        with connect() as client:
+            return client.dispatch(goal, context)
+
     return mcp
 
 

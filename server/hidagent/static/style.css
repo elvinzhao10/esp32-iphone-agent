@@ -1412,3 +1412,30 @@ details.activity-panel > summary,
     gap: 8px;
   }
 }
+
+.shortcut-tray {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  margin: 10px 0;
+}
+.shortcut-tray button {
+  padding: 5px 8px;
+  font-size: 11px;
+}
+#live-keyboard {
+  width: 100%;
+  margin: 5px 0;
+}
+
+.fast-workflows {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin: 10px 0;
+  font-size: 11px;
+}
+.fast-workflows input {
+  width: auto;
+  flex: 0;
+}

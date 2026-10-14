@@ -291,3 +291,7 @@ recipes from observed text context; the vision agent remains optional for unfami
 tasks. The dashboard includes System/Light/Dark themes and follows live device
 aspect ratios. iPad profiles are experimental and require separate calibration.
 See [portable hosts, workflows, Jev, and device profiles](docs/remote-agents.md#portable-device-host-and-lightweight-execution).
+
+Manual control now includes double/triple clicks, long press, a live keyboard,
+editing shortcuts, and iPhone/iPad navigation profiles. Old endpoints and ESP32
+firmware stay compatible. See [gesture limits and repeatable live trials](docs/remote-agents.md#gestures-keyboard-input-and-fast-execution).

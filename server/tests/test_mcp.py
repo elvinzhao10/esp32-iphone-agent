@@ -67,7 +67,9 @@ def test_stdio_bridge_delivers_images_and_task_results():
             await session.initialize()
             tools = {tool.name for tool in (await session.list_tools()).tools}
             assert {"iphone_tap", "iphone_screenshot", "delegate_task", "task_status", "stop_task",
-                    "device_capabilities", "list_workflows", "run_workflow", "route_workflow"} <= tools
+                    "device_capabilities", "list_workflows", "run_workflow", "route_workflow",
+                    "iphone_multi_tap", "iphone_long_press", "iphone_edit_text",
+                    "iphone_shortcut", "dispatch_workflow"} <= tools
             status = await session.call_tool("iphone_status", {})
             assert not status.isError
             shot = await session.call_tool("iphone_screenshot", {})
@@ -80,6 +82,9 @@ def test_stdio_bridge_delivers_images_and_task_results():
             tapped = await session.call_tool("iphone_tap", {"x": .5, "y": .4})
             assert not tapped.isError
             assert any(part.type == "image" for part in tapped.content)
+            edited = await session.call_tool("iphone_edit_text", {"text": "Calendar", "replace": True})
+            assert not edited.isError
+            assert any(part.type == "image" for part in edited.content)
             delegated = await session.call_tool("delegate_task", {"goal": "Open Settings"})
             assert not delegated.isError
             assert task_id in delegated.content[0].text
@@ -95,6 +100,8 @@ def test_stdio_bridge_delivers_images_and_task_results():
         asyncio.run(scenario())
         assert seen == [
             ("/api/control/action", {"action": "tap", "arguments": {"x": .5, "y": .4, "precise": True}}),
+            ("/api/control/action", {"action": "edit_text",
+                                     "arguments": {"text": "Calendar", "replace": True, "submit": False}}),
             ("/api/tasks", {"goal": "Open Settings", "max_steps": 40, "timeout_s": 600}),
             ("/api/workflows/run", {"name": "known-recipe", "recipe": None, "timeout_s": 30}),
         ]

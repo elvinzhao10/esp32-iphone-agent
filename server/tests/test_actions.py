@@ -46,5 +46,5 @@ def test_structured_actor_sends_image_and_decodes_one_function():
     asyncio.run(scenario())
     assert seen[0]["tool_choice"] == "required"
     assert seen[0]["parallel_tool_calls"] is False
-    assert len(seen[0]["tools"]) == 12
+    assert {"multi_tap", "long_press", "edit_text", "shortcut"} <= {t["function"]["name"] for t in seen[0]["tools"]}
     assert seen[0]["messages"][1]["content"][0]["type"] == "image_url"

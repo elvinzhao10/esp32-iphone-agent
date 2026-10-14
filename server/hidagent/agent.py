@@ -61,6 +61,10 @@ Actions:
   circle X Y R              (draw a circle centered at X Y; R is the radius in x units)
   type TEXT                 (ASCII only; tap the input field first)
   key COMBO                 (enter, backspace, esc, cmd+a, ...)
+  multi_tap X Y COUNT      (2 or 3 clicks, same target)
+  long_press X Y MILLISECONDS (300–2000 ms)
+  edit_text TEXT           (type into the focused field)
+  shortcut NAME           (search, switch_app, select_all, undo, redo, escape)
   home | back | wait
   replan                    (the plan no longer fits the screen)
   done ANSWER               (the goal is reached; ANSWER is the result for the user)
@@ -74,7 +78,7 @@ META = ("t", "thought", "thought_zh", "think_s", "act_s", "shot", "_shot", "chan
 
 # action name -> argument names; numeric arguments are 0-1000 screen coordinates
 ACTIONS = PARAMS
-TEXT_ARGS = ("text", "combo", "answer", "reason")
+TEXT_ARGS = ("text", "combo", "answer", "reason", "name")
 
 
 def parse_command(line: str) -> dict:
@@ -182,12 +186,13 @@ class Agent:
         self.task, self.plan, self.steps, self.shots = task, "", [], {}
         self._pointer = (0.0, 0.0)
         self.trace.start(task)
-        self._job = asyncio.create_task(self._execute(timeout_s, commands))
+        self._job = asyncio.create_task(self._execute(
+            timeout_s, commands, workflow.settle if workflow is not None else "each"))
         return self.run_id
 
-    async def _execute(self, timeout_s: float, commands=None) -> None:
+    async def _execute(self, timeout_s: float, commands=None, settle="each") -> None:
         try:
-            await asyncio.wait_for(self._run() if commands is None else self._run_workflow(commands), timeout_s)
+            await asyncio.wait_for(self._run() if commands is None else self._run_workflow(commands, settle), timeout_s)
         except asyncio.TimeoutError:
             self._record(action="fail", reason="task deadline exceeded")
         except asyncio.CancelledError:
@@ -195,7 +200,7 @@ class Agent:
         finally:
             self.finished_at = time.time()
 
-    async def _run_workflow(self, commands):
+    async def _run_workflow(self, commands, settle="each"):
         try:
             for command, require_change in commands:
                 if self.rounds >= self.max_steps:
@@ -206,13 +211,24 @@ class Agent:
                 started = time.monotonic()
                 await self._do(command)
                 self.rounds += 1
-                await self.screen.settled(quiet=0.2, least=0.2, most=1.5)
+                if settle == "frame" and hasattr(self.screen, "after_action"):
+                    await self.screen.after_action()
+                elif settle != "final":
+                    await self.screen.settled(quiet=0.2, least=0.2, most=1.5)
                 if not self.screen.live:
                     raise BlindError("lost the device screen after action")
-                changed = vision.changed(before, self.screen.frame, ignore=tuple(_pointer_path(command)))
+                changed = (vision.changed(before, self.screen.frame, ignore=tuple(_pointer_path(command)))
+                           if settle != "final" else None)
                 self._record(before, **command, changed=changed, act_s=round(time.monotonic() - started, 2))
                 if require_change and not changed:
                     raise RuntimeError("expected screen change missing; return to the remote agent")
+            if settle == "final":
+                if hasattr(self.screen, "after_action"):
+                    await self.screen.after_action()
+                else:
+                    await self.screen.settled(quiet=0.2, least=0.2, most=1.5)
+                if not self.screen.live:
+                    raise BlindError("lost the device screen after workflow")
             self._record(action="done",
                          answer="Workflow actions executed. Inspect the final screen to verify the goal.")
         except asyncio.CancelledError:
@@ -422,6 +438,13 @@ class Agent:
         p = lambda k: a[k] / 1000  # noqa: E731
         match a["action"]:
             case "tap": await self.phone.tap(p("x"), p("y"), aim=a.get("precise", False) or self._missed())
+            case "multi_tap":
+                await self.phone.multi_tap(p("x"), p("y"), a["count"], a.get("interval_ms", 100),
+                                          aim=a.get("precise", False))
+            case "long_press":
+                await self.phone.long_press(p("x"), p("y"), a["duration_ms"], aim=a.get("precise", False))
+            case "edit_text": await self.phone.edit_text(a["text"], a.get("replace", False), a.get("submit", False))
+            case "shortcut": await self.phone.shortcut(a["name"])
             case "swipe": await self.phone.swipe(p("x1"), p("y1"), p("x2"), p("y2"))
             case "path": await self.phone.drag([(x / 1000, y / 1000) for x, y in a["points"]])
             case "circle": await self.phone.drag(circle(p("x"), p("y"), p("r"), self.screen.aspect))
@@ -437,7 +460,7 @@ def _pointer_path(act: dict) -> list[tuple[float, float]]:
     """Screen points (fractions) the pointer passes through for one action."""
     f = lambda x, y: (x / 1000, y / 1000)  # noqa: E731
     match act["action"]:
-        case "tap": return [f(act["x"], act["y"])]
+        case "tap" | "multi_tap" | "long_press": return [f(act["x"], act["y"])]
         case "swipe": return [f(act["x1"], act["y1"]), f(act["x2"], act["y2"])]
         case "path": return [f(*p) for p in act["points"]]
         case "circle": return [f(act["x"] + act["r"], act["y"])]

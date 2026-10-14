@@ -47,6 +47,8 @@ function describeStep(s) {
     "replan (stuck)": ["Stuck — made a new plan", "卡住了，重新规划"],
     replan: ["Rethinking the plan", "重新考虑计划"],
     tap: ["Tap", "点按"],
+    multi_tap: [`Tap ×${s.count}`, `点按 ×${s.count}`],
+    long_press: ["Hold", "长按"], edit_text: ["Edit text", "编辑文字"], shortcut: [s.name, s.name],
     swipe: sideways ? ["Swipe sideways", "左右滑动"] : ["Swipe up / down", "上下滑动"],
     path: ["Draw a stroke", "画一笔"],
     circle: ["Draw a circle", "画一个圆"],

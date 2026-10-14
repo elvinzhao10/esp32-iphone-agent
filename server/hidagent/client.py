@@ -53,6 +53,9 @@ class IPhoneClient:
     def route(self, goal: str, context: str) -> dict:
         return self.request("POST", "/api/workflows/route", {"goal": goal, "context": context}).json()
 
+    def dispatch(self, goal: str, context: str) -> dict:
+        return self.request("POST", "/api/workflows/dispatch", {"goal": goal, "context": context}).json()
+
     def screenshot(self) -> bytes:
         return self.request("GET", "/api/frame.jpg").content
 
@@ -72,7 +75,8 @@ class IPhoneClient:
         return self.request("GET", "/api/tasks").json()
 
     def action(self, name: str, **arguments) -> dict:
-        if name not in ("tap", "swipe", "scroll", "type", "key", "home", "back"):
+        if name not in ("tap", "swipe", "scroll", "type", "key", "home", "back",
+                        "multi_tap", "long_press", "edit_text", "shortcut"):
             raise ValueError("unknown control action")
         return self.request("POST", f"/api/{name}", arguments or None).json()
 
