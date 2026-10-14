@@ -1,0 +1,168 @@
+{
+  "date": "2026-10-14",
+  "host": "Raspberry Pi 3 B+ (1 GB)",
+  "task": "Replace focused Spotlight query with Calendar; never submit or open a result",
+  "legacy_revision": "8e27970",
+  "running_server_revision": "f56dabe",
+  "jev_router_revision": "1f0d76d",
+  "legacy_direct": [
+    {
+      "trial": 1,
+      "mode": "legacy-direct",
+      "execution_s": 3.279,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "trial": 2,
+      "mode": "legacy-direct",
+      "execution_s": 3.355,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "trial": 3,
+      "mode": "legacy-direct",
+      "execution_s": 3.306,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    }
+  ],
+  "direct_edit_workflow": [
+    {
+      "mode": "direct",
+      "trial": 1,
+      "execution_s": 0.378,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "edit",
+      "trial": 1,
+      "execution_s": 0.241,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "workflow",
+      "trial": 1,
+      "execution_s": 0.267,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "edit",
+      "trial": 2,
+      "execution_s": 0.212,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "workflow",
+      "trial": 2,
+      "execution_s": 0.271,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "direct",
+      "trial": 2,
+      "execution_s": 0.351,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "workflow",
+      "trial": 3,
+      "execution_s": 0.283,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "direct",
+      "trial": 3,
+      "execution_s": 0.374,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "mode": "edit",
+      "trial": 3,
+      "execution_s": 0.249,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    }
+  ],
+  "jev": [
+    {
+      "workflow": "search-calendar",
+      "confidence": 0.99,
+      "eligibility": 0.9,
+      "route_ms": 368.8,
+      "needs_remote": false,
+      "state": "succeeded",
+      "trial": 1,
+      "execution_s": 0.621,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "workflow": "search-calendar",
+      "confidence": 0.99,
+      "eligibility": 0.91,
+      "route_ms": 135.6,
+      "needs_remote": false,
+      "state": "succeeded",
+      "trial": 2,
+      "execution_s": 0.379,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    },
+    {
+      "workflow": "search-calendar",
+      "confidence": 0.99,
+      "eligibility": 0.91,
+      "route_ms": 104.0,
+      "needs_remote": false,
+      "state": "succeeded",
+      "trial": 3,
+      "execution_s": 0.407,
+      "verification": "visual inspection of resulting Spotlight screenshot"
+    }
+  ],
+  "provider_verification_attempt": {
+    "goal": "Replace the already focused Spotlight search query with Calendar. Do not open a result or submit.",
+    "rows": [
+      {
+        "trial": 1,
+        "mode": "direct",
+        "state": "executed",
+        "execution_s": 0.342,
+        "verified": null,
+        "verification_reply": "",
+        "verification_s": 18.553
+      },
+      {
+        "trial": 1,
+        "mode": "edit",
+        "state": "executed",
+        "execution_s": 0.204,
+        "verified": null,
+        "verification_error": "",
+        "verification_s": 30.437
+      },
+      {
+        "trial": 1,
+        "mode": "workflow",
+        "state": "succeeded",
+        "execution_s": 0.292,
+        "verified": false,
+        "verification_reply": "NO",
+        "verification_s": 12.058
+      }
+    ]
+  },
+  "vision_agent_attempt": {
+    "goal": "Replace the already focused Spotlight search query with Calendar. Do not open a result or submit.",
+    "rows": [
+      {
+        "trial": 1,
+        "mode": "vision",
+        "state": "failed",
+        "rounds": 0,
+        "model_seconds": 0,
+        "execution_s": 8.998,
+        "verified": null,
+        "verification_error": "Server error '500 Internal Server Error' for url 'https://api.cometapi.com/v1/chat/completions'\nFor more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/500",
+        "verification_s": 9.133
+      }
+    ]
+  },
+  "note": "Only timings and test prompts are published. Raw device screenshots remain private."
+}

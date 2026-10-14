@@ -442,6 +442,9 @@ are built in; arbitrary navigation still requires visual feedback.
 
 ## Repeatable live trials
 
+See [measured Pi/iPhone results](performance-trials.md) for the repeatable task,
+timings, visual checks, provider failures and untested hardware limits.
+
 The host-side runner measures replacing a focused Spotlight query with `Calendar`,
 without Enter, opening results, clipboard use, or messages. Reset to `Notes` is
 identical and untimed across modes; order rotates each trial. Execution and model

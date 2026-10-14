@@ -61,7 +61,9 @@ class Recipe(BaseModel):
 
     def commands(self):
         if self.settle == "final" and (any(s.require_change for s in self.steps)
-                or any(s.action not in ("type", "key", "edit_text", "shortcut", "wait") for s in self.steps)):
+                or any(s.action not in ("type", "key", "edit_text", "shortcut", "wait") for s in self.steps)
+                or any(s.action == "shortcut" and s.arguments.get("name") in
+                       ("search", "switch_app", "keyboard_home") for s in self.steps)):
             raise ValueError("final settling supports independent keyboard steps without visual checkpoints only")
         return [(step.command(), step.require_change) for step in self.steps]
 

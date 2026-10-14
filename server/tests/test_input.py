@@ -91,6 +91,9 @@ def test_final_settling_requires_independent_keyboard_actions():
     assert recipe.commands()[0][0]["replace"] is True
     recipe.steps[0].require_change = True
     with pytest.raises(ValueError): recipe.commands()
+    recipe = Recipe(name="search", description="Search", precondition="Home", settle="final",
+                    steps=[{"action": "shortcut", "arguments": {"name": "search"}}])
+    with pytest.raises(ValueError): recipe.commands()
 
 
 def test_fast_capture_waits_for_a_post_command_frame(monkeypatch):
