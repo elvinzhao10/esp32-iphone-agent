@@ -48,6 +48,20 @@
           <div class="hint" id="hint" data-i18n="waiting"></div>
           <span id="input-lock" class="input-lock" hidden>View only</span>
         </div>
+        <div class="preview-options">
+          <label
+            >Preview size<select id="preview-size">
+              <option value="1">Auto fit</option>
+              <option value="0.75">Compact</option>
+              <option value="1.4">Large</option>
+            </select></label
+          >
+          <label
+            ><input id="precision" type="checkbox" /> Precision taps
+            <small>slower</small></label
+          >
+          <span id="input-state" role="status">Fast input ready</span>
+        </div>
         <p class="caption" id="caption" data-i18n="liveCaption"></p>
         <div class="phone-toolbar">
           <button data-post="/api/home" data-i18n="home"></button
@@ -102,19 +116,37 @@
           </button>
           <button data-panel="external" class="mode-card">
             <span class="mode-icon">⌘</span><b>External agent</b
-            ><span>Connect any MCP agent or HTTP client.</span>
+            ><span>Direct tools + hybrid delegation.</span>
           </button>
           <button data-panel="local" class="mode-card">
             <span class="mode-icon">✦</span><b>Local agent</b
-            ><span>Give the vision agent a goal and watch.</span>
+            ><span>Run workflows or vision tasks here.</span>
           </button>
         </div>
+        <details id="provider-settings" class="workflow-panel">
+          <summary>Model providers · vision LLM and Jev</summary>
+          <p>
+            Shared by Local tasks and External delegation. Direct control and
+            quick workflows need no model key. Keys are stored only on this
+            private host and are never returned to the browser. Blank keys are
+            retained only when the Base URL stays unchanged; enter a replacement
+            key when changing endpoints.
+          </p>
+          <form id="providers-form">
+            <div id="provider-fields"></div>
+            <button id="save-providers" class="primary" type="submit">
+              Save provider settings
+            </button>
+            <span id="provider-result" role="status"></span>
+          </form>
+        </details>
         <section id="panel-manual" class="workflow-panel">
           <div>
             <h2>You're in the driver's seat</h2>
             <p>
-              Click a visible target. Drag to swipe. Scroll over the phone to
-              move a list. Precision taps correct the pointer before clicking.
+              Fast taps respond without a visual correction pass. Drag to swipe
+              with momentum, or scroll over the preview. Enable Precision taps
+              for small targets or when calibration drifts.
             </p>
           </div>
           <p class="muted">
@@ -126,8 +158,10 @@
           <div>
             <h2>A phone tool for your stronger agent</h2>
             <p>
-              Direct control uses your agent's own reasoning. Delegation sends a
-              bounded task to this phone's configured vision agent.
+              Your stronger agent can drive the phone directly, hand a known
+              workflow to the lightweight executor, or delegate a visual goal to
+              the configured vision model. It can switch between these within
+              one control session.
             </p>
           </div>
           <div class="integration">
@@ -144,6 +178,11 @@
               action.</small
             >
           </div>
+          <p id="external-activity" class="notice">
+            Direct tools need no host model key. Workflows need no model. Visual
+            delegation uses the same executor and provider settings as Local
+            mode.
+          </p>
           <div class="external-meta">
             <span id="external-owner">No external controller connected</span
             ><span id="lease-time"></span>

@@ -54,10 +54,12 @@ class ControlState:
     def status(self, run: dict, running: bool):
         self.expire()
         if running:
-            return {"mode": "delegated" if run.get("source") == "external" else "local",
+            return {"mode": "external" if run.get("source") == "external" else "local",
+                    "activity": "delegated" if run.get("source") == "external" else "executing",
+                    "engine": run.get("engine", "vision"),
                     "owner": run.get("owner", "Local agent"), "task_id": run["id"],
-                    "client_id": None, "expires_at": None}
+                    "client_id": self.lease["client_id"] if self.lease else None, "expires_at": None}
         if self.lease:
             return {"mode": "external" if self.lease["source"] == "external" else "manual",
-                    **self.lease, "task_id": None}
+                    **self.lease, "task_id": None, "activity": "direct"}
         return {"mode": "manual", "owner": "Available", "client_id": None, "task_id": None, "expires_at": None}

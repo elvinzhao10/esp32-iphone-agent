@@ -165,6 +165,7 @@ async function post(path, body) {
       : (typeof data.detail === "string"
           ? data.detail
           : "Check the input values.") || r.statusText;
+    if (r.ok) poll();
     return r.ok ? data : null;
   } catch {
     $("msg").textContent =
@@ -354,6 +355,7 @@ let latest = null,
   actionBusy = false,
   shown = "",
   selectedPanel = "manual";
+let detectedMode = null;
 let historyAt = 0,
   viewedRun = null,
   lastFrameAt = 0,
@@ -363,7 +365,6 @@ const live = $("live");
 const modes = {
   manual: "Manual",
   external: "External agent",
-  delegated: "Delegated task",
   local: "Local agent",
 };
 function choosePanel(panel) {
@@ -421,18 +422,47 @@ function frac(e) {
   };
 }
 async function input(path, body) {
-  if (!inputAllowed || actionBusy) return;
+  if (!inputAllowed || actionBusy) {
+    $("input-state").textContent = actionBusy
+      ? "Input in progress · try again when ready"
+      : "View only";
+    return;
+  }
   actionBusy = true;
+  const started = performance.now();
+  $("input-state").textContent = "Sending input…";
   try {
-    return await post(path, body);
+    const result = await post(path, body);
+    $("input-state").textContent = result
+      ? `Input sent · ${Math.round(performance.now() - started)} ms`
+      : "Input not sent";
+    return result;
   } finally {
     actionBusy = false;
   }
 }
 live.addEventListener("pointerdown", (e) => {
   if (!inputAllowed) return;
-  down = frac(e);
+  if (e.button !== 0 || actionBusy) return;
+  e.preventDefault();
+  down = {
+    ...frac(e),
+    points: [frac(e)],
+    startX: e.clientX,
+    startY: e.clientY,
+  };
+  feedback(frac(e));
   live.setPointerCapture(e.pointerId);
+});
+live.addEventListener("pointermove", (e) => {
+  if (!down) return;
+  const point = frac(e),
+    last = down.points.at(-1);
+  if (
+    Math.hypot(point.x - last.x, point.y - last.y) > 0.01 &&
+    down.points.length < 31
+  )
+    down.points.push(point);
 });
 live.addEventListener("pointercancel", () => {
   down = null;
@@ -446,19 +476,41 @@ live.addEventListener("pointerup", async (e) => {
     const result = await input("/api/calibrate/finish", up);
     calibrating = !result;
     calibrationHint(result ? "calOk" : "calNow");
-  } else if (Math.hypot(up.x - from.x, up.y - from.y) < 0.02) {
-    await input("/api/tap", { ...up, precise: true });
+  } else if (Math.hypot(e.clientX - from.startX, e.clientY - from.startY) < 7) {
+    await input("/api/tap", { ...up, precise: $("precision").checked });
   } else
-    await input("/api/swipe", { x1: from.x, y1: from.y, x2: up.x, y2: up.y });
+    await input("/api/gesture", { points: [...from.points, up], flick: true });
 });
-let wheelAt = 0;
+let wheelDelta = 0,
+  wheelTimer = null;
+function flushWheel() {
+  wheelTimer = null;
+  if (!inputAllowed) {
+    wheelDelta = 0;
+    return;
+  }
+  if (actionBusy) {
+    wheelTimer = setTimeout(flushWheel, 50);
+    return;
+  }
+  if (!wheelDelta) return;
+  const delta = wheelDelta;
+  wheelDelta = 0;
+  const lines =
+    -Math.sign(delta) *
+    Math.min(12, Math.max(1, Math.round(Math.abs(delta) / 40)));
+  input("/api/scroll", { x: 0.5, y: 0.5, lines });
+}
 live.addEventListener(
   "wheel",
   (e) => {
     e.preventDefault();
-    if (!inputAllowed || Date.now() - wheelAt < 400) return;
-    wheelAt = Date.now();
-    input("/api/scroll", { ...frac(e), lines: e.deltaY > 0 ? -3 : 3 });
+    if (!inputAllowed) return;
+    wheelDelta +=
+      e.deltaY *
+      (e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? live.clientHeight : 1);
+    wheelDelta = Math.min(1000, Math.max(-1000, wheelDelta));
+    if (!wheelTimer) wheelTimer = setTimeout(flushWheel, 80);
   },
   { passive: false },
 );
@@ -470,16 +522,53 @@ function showFrame(url) {
   $("hint").hidden = Boolean(url);
 }
 async function refreshLive() {
+  const started = performance.now();
   if (!document.hidden) {
+    let url = "";
     try {
       const r = await fetch("/api/frame.jpg", { cache: "no-store" });
-      showFrame(r.ok ? URL.createObjectURL(await r.blob()) : "");
-      if (r.ok) lastFrameAt = Date.now();
+      if (r.ok) {
+        url = URL.createObjectURL(await r.blob());
+        const next = new Image();
+        next.src = url;
+        await next.decode();
+        aspect = next.naturalWidth / next.naturalHeight;
+        fitPreview();
+        showFrame(url);
+        url = "";
+        lastFrameAt = Date.now();
+      } else showFrame("");
     } catch {
-      showFrame("");
+      if (Date.now() - lastFrameAt > 3000) showFrame("");
+    } finally {
+      if (url) URL.revokeObjectURL(url);
     }
   }
-  setTimeout(refreshLive, document.hidden ? 2500 : 500);
+  setTimeout(
+    refreshLive,
+    document.hidden ? 2500 : Math.max(25, 125 - (performance.now() - started)),
+  );
+}
+function fitPreview() {
+  const factor = Number($("preview-size").value);
+  const frame = document.querySelector(".screen");
+  frame.style.aspectRatio = String(aspect);
+  frame.style.setProperty("--device-aspect", String(aspect));
+  document
+    .querySelector("main")
+    .style.setProperty(
+      "--preview-width",
+      `${Math.min(720, (aspect > 0.85 ? 560 : 350) * factor)}px`,
+    );
+}
+$("preview-size").onchange = fitPreview;
+function feedback(point) {
+  const marker = document.createElement("span");
+  marker.className = "input-feedback";
+  marker.style.left = `${point.x * 100}%`;
+  marker.style.top = `${point.y * 100}%`;
+  live.parentElement.append(marker);
+  setTimeout(() => marker.remove(), 400);
 }
 function calibrationHint(key) {
   $("caption").textContent = t(key || "liveCaption");
@@ -643,7 +732,12 @@ document.querySelectorAll("[data-feed]").forEach((b) =>
 );
 
 // ---- poll the authoritative state; viewing never claims the phone ----------------------
+let pollTimer = null,
+  polling = false;
 async function poll() {
+  if (polling) return;
+  clearTimeout(pollTimer);
+  polling = true;
   try {
     const response = await fetch("/api/status", { cache: "no-store" });
     if (!response.ok) throw new Error("status unavailable");
@@ -655,14 +749,19 @@ async function poll() {
       a = s.agent,
       own = !c.client_id || c.client_id === clientId;
     inputAllowed = c.mode === "manual" && own && s.device && s.screen;
+    const controlKey = `${c.mode}:${c.activity || ""}:${c.task_id || ""}`;
+    if (detectedMode !== controlKey) {
+      detectedMode = controlKey;
+      choosePanel(c.mode);
+    }
     document.body.dataset.mode = c.mode;
     $("mode-badge").textContent = modes[c.mode];
     $("owner").textContent = c.owner;
     $("ownership-detail").textContent =
-      c.mode === "delegated"
-        ? "Your external agent handed this task to the phone agent."
+      c.mode === "external" && c.activity === "delegated"
+        ? `External agent delegated a ${c.engine === "workflow" ? "quick workflow" : "vision task"} to the local executor.`
         : c.mode === "local"
-          ? "The local vision agent is operating the phone."
+          ? `Local ${a.engine === "workflow" ? "workflow executor" : "vision agent"} is operating the phone.`
           : c.mode === "external"
             ? "External tools own input. This dashboard is observing."
             : own
@@ -676,8 +775,14 @@ async function poll() {
     $("input-lock").textContent = s.screen
       ? "View only · take control to interact"
       : "Screen sharing offline";
+    $("external-activity").textContent =
+      c.mode === "external"
+        ? c.activity === "delegated"
+          ? `Hybrid · ${c.owner} is waiting for the local ${c.engine === "workflow" ? "workflow" : "vision"} executor. Direct tools resume when it finishes.`
+          : "Direct control · this session can delegate workflows or visual tasks and resume direct tools afterward."
+        : "Direct tools and quick workflows need no host model key. Visual delegation uses the shared model settings below.";
     $("external-owner").textContent =
-      c.mode === "external" || c.mode === "delegated"
+      c.mode === "external"
         ? `Connected: ${c.owner}`
         : "No external controller currently owns input";
     $("lease-time").textContent = c.expires_at
@@ -685,13 +790,14 @@ async function poll() {
       : "";
     $("frame-state").textContent =
       s.screen && Date.now() - lastFrameAt < 4000
-        ? "Live · 2 fps preview"
+        ? "Live · up to 8 fps"
         : "Waiting for mirroring";
     $("setup")
       .querySelectorAll("li")
       .forEach((li) => li.classList.toggle("done", Boolean(s[li.dataset.key])));
     const ready =
       s.device && s.screen && s.calibrated && s.configuration.model_ready;
+    $("save-providers").disabled = a.running || !own || c.mode === "external";
     $("run").disabled = a.running || !ready || !own || c.mode === "external";
     $("examples")
       .querySelectorAll("button")
@@ -728,8 +834,9 @@ async function poll() {
       : "Model setup needed";
     $("model-warning").hidden = s.configuration.model_ready;
     $("model-warning").textContent =
-      "Configure the model endpoint, model name, and API key in server/.env on this host, then restart the service. External direct control uses its own model.";
+      "Open Model providers above to configure the vision endpoint, model and key. These settings are shared by Local tasks and External visual delegation. Direct tools and workflows need no host model.";
     aspect = s.aspect || aspect;
+    fitPreview();
     document.querySelector(".screen").style.aspectRatio = String(aspect);
     document
       .querySelector(".screen")
@@ -769,6 +876,8 @@ async function poll() {
     $("server-state").textContent = "Reconnecting…";
     $("server-dot").classList.remove("on");
     $("run").disabled = true;
+    $("run-workflow").disabled = true;
+    $("save-providers").disabled = true;
     $("input-lock").hidden = false;
     $("input-lock").textContent = "Connection lost";
     document
@@ -777,10 +886,100 @@ async function poll() {
         b.disabled = true;
       });
   }
-  setTimeout(poll, document.hidden ? 2500 : latest?.agent.running ? 500 : 1000);
+  polling = false;
+  pollTimer = setTimeout(poll, document.hidden ? 2500 : 500);
 }
 applyLang();
 applyMotion();
 choosePanel("manual");
 refreshLive();
 poll();
+
+// Shared provider configuration; stored keys are represented only by key_set.
+async function loadProviders() {
+  try {
+    const response = await fetch("/api/settings");
+    if (!response.ok) throw new Error("Provider settings unavailable");
+    const settings = await response.json();
+    $("provider-fields").replaceChildren();
+    for (const [role, title] of [
+      ["actor", "Vision actor"],
+      ["planner", "Vision planner / verifier"],
+      ["jev", "Jev / workflow router"],
+    ]) {
+      const box = document.createElement("fieldset");
+      const legend = document.createElement("legend");
+      legend.textContent = title;
+      box.append(legend);
+      const values = settings[role];
+      const fields =
+        role === "jev"
+          ? ["protocol", "base_url", "model", "api_key", "min_confidence"]
+          : ["base_url", "model", "api_key"];
+      for (const key of fields) {
+        const label = document.createElement("label");
+        label.textContent = {
+          protocol: "API protocol",
+          base_url: "Base URL (include /v1 when required)",
+          model: "Model",
+          api_key: "API key",
+          min_confidence: "Minimum routing confidence",
+        }[key];
+        const field = document.createElement(
+          key === "protocol" ? "select" : "input",
+        );
+        field.name = `${role}.${key}`;
+        if (key === "protocol") {
+          for (const [value, text] of [
+            ["typesafe", "TypeSafe System One"],
+            ["openai", "OpenAI-compatible Chat Completions"],
+          ]) {
+            const option = document.createElement("option");
+            option.value = value;
+            option.textContent = text;
+            field.append(option);
+          }
+        } else
+          field.type =
+            key === "api_key"
+              ? "password"
+              : key === "min_confidence"
+                ? "number"
+                : "text";
+        if (key === "api_key") {
+          field.autocomplete = "new-password";
+          field.placeholder = values.key_set
+            ? "Configured · blank keeps key if URL unchanged"
+            : "Not configured";
+        } else field.value = values[key] ?? "";
+        if (key === "min_confidence") {
+          field.min = 0;
+          field.max = 1;
+          field.step = 0.01;
+        }
+        label.append(field);
+        box.append(label);
+      }
+      $("provider-fields").append(box);
+    }
+  } catch (e) {
+    $("provider-result").textContent = e.message;
+  }
+}
+$("providers-form").onsubmit = async (e) => {
+  e.preventDefault();
+  const patch = { actor: {}, planner: {}, jev: {} };
+  for (const [name, value] of new FormData(e.currentTarget)) {
+    const [role, key] = name.split(".");
+    if (key === "api_key" && !value) continue;
+    patch[role][key] = key === "min_confidence" ? Number(value) : value;
+  }
+  $("save-providers").disabled = true;
+  const result = await post("/api/settings", patch);
+  if (result) {
+    $("provider-result").textContent =
+      "Saved on this host · active immediately";
+    await loadProviders();
+  } else $("provider-result").textContent = "Could not save settings";
+};
+loadProviders();

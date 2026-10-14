@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import os
+import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Literal
@@ -18,9 +19,10 @@ from .agent import Agent
 from .control import ControlState
 from .debug import Trace
 from .device import Device, DeviceError
-from .llm import LLM
+from .llm import LLM, TOKEN_PARAMS
 from .phone import Phone
 from .screen import Screen
+from .settings import load_settings, save_settings, update_settings
 
 DATA_DIR = Path(os.environ.get("HIDAGENT_DATA", Path.home() / ".hidagent"))
 DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -31,6 +33,37 @@ screen = Screen(os.environ.get("AIRPLAY_NAME", "iPhone Agent"))
 phone = Phone(device, DATA_DIR / "calibration.json", screen)
 agent = Agent(phone, screen, LLM.from_env("ACTOR"), LLM.from_env("PLANNER"),
               Trace(DATA_DIR / "traces" if DEBUG else None))
+
+
+def apply_settings(value):
+    for role in ("actor", "planner"):
+        provider = getattr(value, role)
+        model = getattr(agent, role)
+        model._http.base_url = provider.base_url.rstrip("/") + "/"
+        model._http.headers.pop("Authorization", None)
+        if provider.api_key:
+            model._http.headers["Authorization"] = f"Bearer {provider.api_key}"
+        model.model = provider.model
+        model.authenticated = bool(provider.api_key)
+        token = os.environ.get(f"{role.upper()}_TOKEN_PARAM") or os.environ.get("LLM_TOKEN_PARAM", "auto")
+        model._auto, model.token_param = token not in TOKEN_PARAMS, token if token in TOKEN_PARAMS else "max_tokens"
+
+
+apply_settings(load_settings())
+
+
+def task_ownership(request):
+    client_id, owner, source = identity(request)
+    if source == "external":
+        ownership.claim(client_id, owner, source, ttl=3720)
+        run_id = agent.run_id
+        def finished(_):
+            if (agent.run_id == run_id and ownership.lease
+                    and ownership.lease["client_id"] == client_id):
+                ownership.lease["expires_at"] = time.time() + 120
+        agent._job.add_done_callback(finished)
+    else:
+        ownership.release()
 
 
 @asynccontextmanager
@@ -268,7 +301,7 @@ async def agent_start(t: Text, request: Request):
         async with control(request, claim=False):
             _, owner, source = identity(request)
             run_id = agent.start(t.text, source=source, owner=owner)
-            ownership.release()
+            task_ownership(request)
             ownership.record("task", owner, "Started local agent task")
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
@@ -313,7 +346,7 @@ async def task_start(task: TaskRequest, request: Request):
         async with control(request, claim=False):
             _, owner, source = identity(request)
             run_id = agent.start(task.goal, task.max_steps, task.timeout_s, source=source, owner=owner)
-            ownership.release()
+            task_ownership(request)
             ownership.record("task", owner, "Delegated task" if source == "external" else "Started local agent task")
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
@@ -436,7 +469,7 @@ def capabilities():
             "interaction": ["manual", "direct", "workflow", "vision_task"],
             "interfaces": {"mcp": "stdio bridge on any client host", "rest": "/openapi.json", "cli": "iphone-agent"},
             "workflow": {"max_steps": 32, "persistent_memory": False,
-                         "jev_ready": bool(os.environ.get("TYPESAFE_API_KEY"))},
+                         "jev_ready": bool(load_settings().jev.api_key)},
             "limitations": ["ASCII keyboard input", "one device per server instance",
                             "trusted private network required"]}
 
@@ -473,7 +506,7 @@ async def workflow_start(body: WorkflowRequest, request: Request):
             _, owner, source = identity(request)
             run_id = agent.start(recipe.description, len(recipe.steps), body.timeout_s,
                                  source=source, owner=owner, workflow=recipe)
-            ownership.release()
+            task_ownership(request)
             ownership.record("workflow", owner, recipe.name)
     except RuntimeError as e:
         raise HTTPException(409, str(e)) from e
@@ -495,3 +528,34 @@ async def workflow_route(body: RouteRequest):
         raise HTTPException(409, str(e)) from e
     except Exception as e:
         raise HTTPException(502, "Jev routing unavailable; use the remote agent") from e
+
+
+@app.get("/api/settings")
+async def provider_settings():
+    return load_settings().public()
+
+
+@app.post("/api/settings")
+async def configure_providers(body: dict, request: Request):
+    """Configure providers on the trusted device host; never return stored API keys."""
+    async with control(request, claim=False):
+        try:
+            value = update_settings(body)
+            save_settings(value)
+            apply_settings(value)
+        except (ValueError, OSError) as e:
+            # Validation errors may contain submitted secret values; do not echo them.
+            raise HTTPException(422, "Invalid provider settings; check URLs, models and protocol") from e
+    return value.public()
+
+
+class Gesture(BaseModel):
+    points: list[Point] = Field(min_length=2, max_length=32)
+    flick: bool = True
+
+
+@app.post("/api/gesture")
+async def manual_gesture(body: Gesture, request: Request):
+    if not screen.live:
+        raise HTTPException(409, "screen mirroring is required")
+    return await act(phone.drag([(p.x, p.y) for p in body.points], hold=not body.flick), request)

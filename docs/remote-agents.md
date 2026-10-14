@@ -165,9 +165,8 @@ which workflow panel you are browsing:
 | State | Who acts | Dashboard behavior |
 |---|---|---|
 | Manual | A dashboard user, or nobody yet | Live taps, swipes, typing, calibration |
-| External agent | A CLI/MCP control session | Observe only; shows the controller and lease expiry |
-| Delegated task | The local vision agent executing an external agent's goal | Observe progress/result; stop or take over |
-| Local agent | The local vision agent executing a dashboard goal | Shows model readiness, limits, plan, progress and result |
+| External agent | A CLI/MCP session using direct tools or delegating to the shared executor | Observe the active direct/delegated phase; stop or take over |
+| Local agent | A dashboard-started workflow or vision task | Shows execution readiness, progress and result |
 
 The workflow cards select what you want to do; they do not pretend to change
 ownership. Input is locked in both the UI and API when another controller owns the
@@ -208,7 +207,7 @@ Direct taps now default to `precise: true`, using screenshot-based pointer
 correction before clicking. Set it false on the HTTP/MCP tap tool to trade
 accuracy for lower latency. Swipes and edge gestures can still require tuning.
 
-The live preview fetches at most two frames per second while visible and pauses
+The live preview fetches up to eight frames per second while visible and pauses
 frame requests in hidden tabs. Task/ownership status continues at a lower rate.
 
 ## A closer Codex workflow
@@ -349,3 +348,45 @@ backends are not implemented. The profile is discovery metadata, not a new drive
 
 The dashboard offers System/Light/Dark themes, follows OS changes in System mode,
 and saves the user's theme choice locally.
+
+
+## Three automatic modes and hybrid sessions
+
+The dashboard automatically follows the actual controller: Manual, External, or
+Local. Browsing a panel does not claim control; the next real mode transition
+selects its corresponding panel. External includes both `activity:direct` and
+`activity:delegated`, with `engine:workflow` or `engine:vision` identifying local
+execution. Delegation preserves the external caller's lease and renews it for
+120 seconds on completion, allowing the same agent to resume direct tools. Other
+controllers stay locked until release, expiry, emergency stop, or explicit takeover.
+Local mode means a dashboard-started workflow or vision task; its executor and
+provider configuration are the same ones used by external delegation.
+
+Manual taps default to the fast calibrated-pointer path; the Precision taps
+checkbox enables slower visual correction. MCP/agent taps retain precision defaults.
+Drags submit the sampled gesture through `/api/gesture` with momentum enabled;
+trackpad deltas are coalesced instead of dropping every event for 400 ms. A visible
+marker acknowledges input immediately; input status reports request timing and
+busy state. The preview decodes the next JPEG before swapping frames, adapts to
+mirrored dimensions/orientation, and offers Auto/Compact/Large sizes. Capture is
+still AirPlay plus USB HID, not a native touch transport; no measured on-device
+latency improvement is claimed without a live mirrored phone test.
+
+## Provider settings in the dashboard
+
+Open **Model providers · vision LLM and Jev** in any mode. Set independent actor
+and planner/verifier Base URLs, model names and keys. For Jev/router choose either
+TypeSafe System One (`/systemone`) or OpenAI-compatible Chat Completions
+(`/chat/completions`); the Base URL should include `/v1` if the provider needs it.
+The latter requests JSON `{choice,confidence}`, accepts only configured recipe
+names or escalation, and rejects malformed output. Its confidence is self-reported
+by that provider and should not be treated as calibrated TypeSafe confidence.
+
+Saving validates formats and applies immediately while the device is idle; it
+never performs a test inference or sends a screenshot. Settings are saved in
+`HIDAGENT_DATA/providers.json` with mode 0600 and override provider env values on
+restart. GET `/api/settings` returns model/URL/protocol and key-set flags, never
+secrets. Blank key fields retain existing keys only if the endpoint is unchanged;
+changing an endpoint clears its old key unless a replacement is supplied. Saving
+is blocked during tasks or when another controller owns the device. This remains
+a trusted-private-network service; dashboard settings do not add authentication.

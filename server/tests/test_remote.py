@@ -298,7 +298,7 @@ def test_local_and_delegated_task_modes_are_reported_by_server(api):
 
         api.agent._run = blocked
         async with connect(api) as client:
-            for source, expected in (("external", "delegated"), ("dashboard", "local")):
+            for source, expected in (("external", "external"), ("dashboard", "local")):
                 entered.clear()
                 release.clear()
                 start = await client.post("/api/tasks", json={"goal": "Test"}, headers=controller(source, source))
@@ -309,6 +309,11 @@ def test_local_and_delegated_task_modes_are_reported_by_server(api):
                 assert status["control"]["task_id"] == start.json()["id"]
                 release.set()
                 await api.agent.wait_stopped()
+                if source == "external":
+                    status = (await client.get("/api/status")).json()
+                    assert status["control"]["mode"] == "external"
+                    assert status["control"]["activity"] == "direct"
+                    await client.post("/api/control/release", headers=controller(source, source))
             runs = (await client.get("/api/tasks")).json()
             assert [run["source"] for run in runs] == ["dashboard", "external"]
             assert all(run["state"] == "succeeded" for run in runs)
@@ -471,4 +476,62 @@ def test_workflow_catalog_and_generic_discovery(api, monkeypatch, tmp_path):
             assert (await client.post("/api/workflows/run", json={"name": "missing"})).status_code == 404
             response = await client.post("/api/workflows/run", json={"name": recipe["name"], "recipe": recipe})
             assert response.status_code == 422
+    asyncio.run(scenario())
+
+
+def test_provider_settings_persist_mask_secrets_and_apply_live(api):
+    import stat
+
+    from hidagent.llm import LLM
+    from hidagent.settings import settings_path
+    api.agent.actor = LLM("http://localhost:8000/v1", "before")
+    api.agent.planner = LLM("http://localhost:8000/v1", "before")
+
+    async def scenario():
+        try:
+            async with connect(api) as client:
+                body = {"actor": {"base_url": "http://localhost:9000/v1", "model": "vision", "api_key": "test-secret"},
+                        "planner": {"model": "planning"},
+                        "jev": {"protocol": "openai", "base_url": "http://localhost:9001/v1", "model": "router"}}
+                response = await client.post("/api/settings", json=body)
+                assert response.status_code == 200
+                assert "test-secret" not in response.text
+                assert response.json()["actor"]["key_set"] is True
+                assert api.agent.actor.model == "vision"
+                assert api.agent.actor._http.headers["Authorization"] == "Bearer test-secret"
+                assert str(api.agent.actor._http.base_url) == "http://localhost:9000/v1/"
+                assert stat.S_IMODE(settings_path().stat().st_mode) == 0o600
+                assert (await client.get("/api/settings")).json()["jev"]["protocol"] == "openai"
+                await client.post("/api/settings", json={"actor": {"model": "changed"}})
+                assert api.agent.actor._http.headers["Authorization"] == "Bearer test-secret"
+                bad = await client.post("/api/settings", json={"actor": {"base_url": "secret://test-secret"}})
+                assert bad.status_code == 422
+                assert "test-secret" not in bad.text
+                assert (await client.get("/api/settings")).json()["actor"]["model"] == "changed"
+                await client.post("/api/settings", json={"actor": {"base_url": "http://other.test/v1"}})
+                assert "Authorization" not in api.agent.actor._http.headers
+        finally:
+            await api.agent.actor._http.aclose()
+            await api.agent.planner._http.aclose()
+    asyncio.run(scenario())
+
+
+def test_manual_gesture_preserves_path_and_flick_without_agent_settle(api):
+    calls = []
+
+    async def drag(points, hold=True):
+        calls.append((points, hold))
+    api.phone.drag = drag
+
+    async def scenario():
+        async with connect(api) as client:
+            response = await client.post("/api/gesture", json={"points": [
+                {"x": .5, "y": .8}, {"x": .4, "y": .6}, {"x": .5, "y": .3}], "flick": True})
+            assert response.status_code == 200
+            assert calls == [([(.5, .8), (.4, .6), (.5, .3)], False)]
+            assert (await client.post("/api/gesture", json={"points": [{"x": .5, "y": .5}]})).status_code == 422
+            api.screen.live = False
+            assert (await client.post("/api/gesture", json={"points": [
+                {"x": 0, "y": 0}, {"x": 1, "y": 1}]})).status_code == 409
+            assert len(calls) == 1
     asyncio.run(scenario())

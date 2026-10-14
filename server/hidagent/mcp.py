@@ -164,8 +164,9 @@ def create_server(url: str | None = None):
     def route_workflow(goal: str, context: str) -> dict:
         """Optional Jev text router: choose a registered recipe or escalate. Does not execute it.
 
-        Supply current observed screen context. Requires TYPESAFE_API_KEY on the host. Sends
-        goal/context and recipe descriptions to TypeSafe. Verify preconditions before run_workflow.
+        Supply current observed screen context. Configure the router in the host dashboard. Sends
+        goal/context and recipe descriptions to the configured TypeSafe or OpenAI-compatible endpoint.
+        Verify preconditions before run_workflow.
         """
         with connect() as client:
             return client.route(goal, context)

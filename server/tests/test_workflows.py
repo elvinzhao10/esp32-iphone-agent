@@ -48,3 +48,27 @@ def test_recipe_rejects_invalid_actions(arguments):
                     steps=[{"action": "tap", "arguments": arguments}])
     with pytest.raises(ValueError):
         recipe.commands()
+
+
+def test_openai_router_uses_custom_base_and_rejects_free_actions(monkeypatch, tmp_path):
+    from hidagent.settings import save_settings, update_settings
+    monkeypatch.setenv("HIDAGENT_DATA", str(tmp_path))
+    save_settings(update_settings({"jev": {"protocol": "openai", "base_url": "http://router.test/v1",
+                                          "model": "my-router", "api_key": "test-only"}}))
+    recipe = Recipe(name="search", description="Search", precondition="Focused search", steps=[{"action": "wait"}])
+    choice = "search"
+
+    def respond(request):
+        assert str(request.url) == "http://router.test/v1/chat/completions"
+        body = json.loads(request.content)
+        assert body["model"] == "my-router"
+        assert body["response_format"] == {"type": "json_object"}
+        return httpx.Response(200, json={"choices": [{"message": {"content": json.dumps({
+            "choice": choice, "confidence": .95})}}]})
+
+    async def run():
+        return await route("Search", "Focused search", {"search": recipe}, transport=httpx.MockTransport(respond))
+    assert asyncio.run(run())["workflow"] == "search"
+    choice = "tap-anywhere"
+    with pytest.raises(ValueError):
+        asyncio.run(run())
