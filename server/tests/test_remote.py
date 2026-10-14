@@ -388,3 +388,87 @@ def test_shutdown_closes_an_open_controller_connection(api, monkeypatch):
         await writer.wait_closed()
 
     asyncio.run(asyncio.wait_for(scenario(), 3))
+
+
+def test_workflows_need_no_model_and_keep_tracking(api, monkeypatch):
+    import io
+
+    from PIL import Image
+    image = io.BytesIO()
+    Image.new("RGB", (32, 64), "white").save(image, format="JPEG")
+    api.screen.frame = image.getvalue()
+
+    async def settled(**kwargs): pass
+    api.screen.settled = settled
+    api.agent.actor.model = api.agent.planner.model = ""
+    recipe = {"name": "tap-pair", "description": "Tap two known targets", "precondition": "Both targets visible",
+              "steps": [{"action": "tap", "arguments": {"x": .3, "y": .4}},
+                        {"action": "tap", "arguments": {"x": .7, "y": .4}}]}
+
+    async def scenario():
+        async with connect(api) as client:
+            response = await client.post("/api/workflows/run", json={"recipe": recipe})
+            assert response.status_code == 202
+            run_id = response.json()["id"]
+            await api.agent.wait_stopped()
+            run = (await client.get(f"/api/tasks/{run_id}")).json()
+            assert run["engine"] == "workflow"
+            assert run["state"] == "succeeded"
+            assert run["rounds"] == 2
+            assert api.phone.calls == [(.3, .4), (.7, .4)]
+            assert "Inspect the final screen" in run["result"]
+            recipe["steps"][0]["require_change"] = True
+            response = await client.post("/api/workflows/run", json={"recipe": recipe})
+            await api.agent.wait_stopped()
+            run = (await client.get(response.json()["status_url"])).json()
+            assert run["state"] == "failed"
+            assert "expected screen change" in run["error"]
+            assert len(api.phone.calls) == 3  # skipped second tap
+            recipe["steps"][0]["arguments"]["x"] = 1.5
+            assert (await client.post("/api/workflows/run", json={"recipe": recipe})).status_code == 422
+            assert len(api.phone.calls) == 3
+    asyncio.run(scenario())
+
+
+def test_workflow_cancellation_and_screen_loss(api):
+    recipe = {"name": "wait-then-tap", "description": "Wait then tap", "precondition": "Target visible",
+              "steps": [{"action": "wait"}, {"action": "tap", "arguments": {"x": .5, "y": .5}}]}
+
+    async def scenario():
+        entered = asyncio.Event()
+
+        async def settled(**kwargs):
+            entered.set()
+            await asyncio.Event().wait()
+        api.screen.settled = settled
+        async with connect(api) as client:
+            response = await client.post("/api/workflows/run", json={"recipe": recipe})
+            await entered.wait()
+            assert (await client.post("/api/tap", json={"x": .5, "y": .5})).status_code == 409
+            await client.post(response.json()["status_url"] + "/stop")
+            assert api.agent.run_info()["state"] == "cancelled"
+            assert api.phone.calls == ["reset"]
+            api.screen.live = False
+            assert (await client.post("/api/workflows/run", json={"recipe": recipe})).status_code == 409
+    asyncio.run(scenario())
+
+
+def test_workflow_catalog_and_generic_discovery(api, monkeypatch, tmp_path):
+    recipe = {"name": "known-tap", "description": "Tap known target", "precondition": "Target visible",
+              "steps": [{"action": "tap", "arguments": {"x": .5, "y": .5}}]}
+    path = tmp_path / "workflows.json"
+    path.write_text(json.dumps([recipe]))
+    monkeypatch.setenv("WORKFLOWS_FILE", str(path))
+    monkeypatch.setenv("DEVICE_KIND", "ipad")
+
+    async def scenario():
+        async with connect(api) as client:
+            assert (await client.get("/api/workflows")).json() == [
+                {**recipe, "steps": [{**recipe["steps"][0], "require_change": False}]}]
+            caps = (await client.get("/api/capabilities")).json()
+            assert caps["device"]["kind"] == "ipad"
+            assert caps["workflow"]["persistent_memory"] is False
+            assert (await client.post("/api/workflows/run", json={"name": "missing"})).status_code == 404
+            response = await client.post("/api/workflows/run", json={"name": recipe["name"], "recipe": recipe})
+            assert response.status_code == 422
+    asyncio.run(scenario())

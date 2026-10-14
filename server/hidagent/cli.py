@@ -12,7 +12,7 @@ from .client import IPhoneClient
 
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
-    root.add_argument("--url", help="Pi URL; defaults to IPHONE_AGENT_URL or http://127.0.0.1:8890")
+    root.add_argument("--url", help="Device host URL; defaults to IPHONE_AGENT_URL or http://127.0.0.1:8890")
     sub = root.add_subparsers(dest="command", required=True)
     sub.add_parser("status")
     shot = sub.add_parser("screenshot")
@@ -25,8 +25,16 @@ def parser() -> argparse.ArgumentParser:
     for name in ("type", "key"):
         action = sub.add_parser(name)
         action.add_argument("text")
-    for name in ("home", "back", "mcp", "claim", "release", "tasks"):
+    for name in ("home", "back", "mcp", "claim", "release", "tasks", "capabilities", "workflows"):
         sub.add_parser(name)
+    workflow = sub.add_parser("workflow", help="run a registered recipe or a JSON recipe file")
+    workflow.add_argument("--name")
+    workflow.add_argument("--file", type=Path)
+    workflow.add_argument("--timeout", type=float, default=60)
+    workflow.add_argument("--wait", action="store_true")
+    route = sub.add_parser("route", help="Jev recipe selection only; does not execute")
+    route.add_argument("goal")
+    route.add_argument("context", help="current observed screen description")
     calibration = sub.add_parser("calibrate")
     calibration.add_argument("--pointer", nargs=2, type=float, metavar=("X", "Y"))
     task = sub.add_parser("task")
@@ -51,6 +59,14 @@ def main(argv=None) -> int:
         with IPhoneClient(args.url) as client:
             match args.command:
                 case "status": result = client.status()
+                case "capabilities": result = client.capabilities()
+                case "workflows": result = {"workflows": client.workflows()}
+                case "route": result = client.route(args.goal, args.context)
+                case "workflow":
+                    recipe = json.loads(args.file.read_text()) if args.file else None
+                    result = client.workflow(args.name, recipe, args.timeout)
+                    if args.wait:
+                        result = client.wait(result["id"], args.timeout + 15)
                 case "claim": result = client.claim()
                 case "release": result = client.release()
                 case "tasks": result = {"tasks": client.tasks()}

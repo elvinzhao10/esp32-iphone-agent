@@ -1,4 +1,4 @@
-"""Controller-side MCP stdio bridge; forwards to the Pi over its existing HTTP API."""
+"""Controller-side MCP stdio bridge; forwards to a device host over its existing HTTP API."""
 
 import base64
 import json
@@ -33,7 +33,8 @@ def create_server(url: str | None = None):
         "Start with iphone_observe. Action tools return the resulting screenshot; use that before the next action. "
         "Coordinates are fractions 0–1 of the image. Use release_control when finished. "
         "On an ownership conflict or dashboard takeover, stop and ask the user before claiming control again. "
-        "Use either direct controls or delegate_task, not both simultaneously. "
+        "Use direct controls, run_workflow for known short sequences, or delegate_task for vision reasoning. "
+        "Never mix them concurrently. "
         "Poll task_status until terminal. stop_task is the emergency stop. "
         "Only act on the user's requested device task."))
 
@@ -135,6 +136,39 @@ def create_server(url: str | None = None):
         """Release this agent's phone session so the dashboard or another agent can take control."""
         with connect() as client:
             return client.release()
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def device_capabilities() -> dict:
+        """Discover device profile, coordinates, interfaces and limits. Works with any MCP agent."""
+        with connect() as client:
+            return client.capabilities()
+
+    @mcp.tool(annotations=ToolAnnotations(readOnlyHint=True))
+    def list_workflows() -> list:
+        """Read small reusable recipes, their exact actions and required starting screen."""
+        with connect() as client:
+            return client.workflows()
+
+    @mcp.tool()
+    def run_workflow(name: str | None = None, recipe: dict | None = None, timeout_s: float = 60) -> dict:
+        """Execute a known finite recipe without LLM calls. Supply exactly one of name or recipe.
+
+        Observe and verify its precondition first. Inline recipe: name, description, precondition,
+        steps:[{action,arguments,require_change:false}]. Coordinates 0–1; key arguments use combo.
+        Up to 32 steps. Poll task_status; observe final screen to verify. Stop/takeover cancels it.
+        """
+        with connect() as client:
+            return client.workflow(name, recipe, timeout_s)
+
+    @mcp.tool()
+    def route_workflow(goal: str, context: str) -> dict:
+        """Optional Jev text router: choose a registered recipe or escalate. Does not execute it.
+
+        Supply current observed screen context. Requires TYPESAFE_API_KEY on the host. Sends
+        goal/context and recipe descriptions to TypeSafe. Verify preconditions before run_workflow.
+        """
+        with connect() as client:
+            return client.route(goal, context)
 
     return mcp
 

@@ -146,13 +146,14 @@ class Agent:
         self.verify_completion = os.environ.get("VERIFY_COMPLETION", "1") == "1"
         self._completion_retries = 0
         self.rounds = 0
+        self.engine = "vision"
 
     @property
     def running(self) -> bool:
         return self._job is not None and not self._job.done()
 
     def start(self, task: str, max_steps: int | None = None, timeout_s: float = 600,
-              *, source: str = "dashboard", owner: str = "Dashboard") -> str:
+              *, source: str = "dashboard", owner: str = "Dashboard", workflow=None) -> str:
         if self.running:
             raise RuntimeError("agent already running")
         if not task.strip():
@@ -161,7 +162,7 @@ class Agent:
             raise RuntimeError("controller not connected")
         if not self.phone.calibrated:
             raise RuntimeError("pointer not calibrated")
-        if (not self.actor.model or not self.planner.model
+        if workflow is None and (not self.actor.model or not self.planner.model
                 or not getattr(self.actor, "ready", True) or not getattr(self.planner, "ready", True)):
             raise RuntimeError("configure the actor and planner models first")
         if not self.screen.live:
@@ -169,7 +170,9 @@ class Agent:
         max_steps = self._default_max_steps if max_steps is None else max_steps
         if not isinstance(max_steps, int) or not 1 <= max_steps <= 120 or not 1 <= timeout_s <= 3600:
             raise RuntimeError("invalid task limits")
+        commands = workflow.commands() if workflow is not None else None
         self._archive()
+        self.engine = "workflow" if commands is not None else "vision"
         self.source, self.owner = source, owner
         self.run_id = uuid.uuid4().hex
         self.started_at, self.finished_at = time.time(), None
@@ -179,18 +182,44 @@ class Agent:
         self.task, self.plan, self.steps, self.shots = task, "", [], {}
         self._pointer = (0.0, 0.0)
         self.trace.start(task)
-        self._job = asyncio.create_task(self._execute(timeout_s))
+        self._job = asyncio.create_task(self._execute(timeout_s, commands))
         return self.run_id
 
-    async def _execute(self, timeout_s: float) -> None:
+    async def _execute(self, timeout_s: float, commands=None) -> None:
         try:
-            await asyncio.wait_for(self._run(), timeout_s)
+            await asyncio.wait_for(self._run() if commands is None else self._run_workflow(commands), timeout_s)
         except asyncio.TimeoutError:
             self._record(action="fail", reason="task deadline exceeded")
         except asyncio.CancelledError:
             pass
         finally:
             self.finished_at = time.time()
+
+    async def _run_workflow(self, commands):
+        try:
+            for command, require_change in commands:
+                if self.rounds >= self.max_steps:
+                    raise RuntimeError("workflow step budget exceeded")
+                if not self.screen.live:
+                    raise BlindError("lost the device screen; return to the remote agent")
+                before = self.screen.frame
+                started = time.monotonic()
+                await self._do(command)
+                self.rounds += 1
+                await self.screen.settled(quiet=0.2, least=0.2, most=1.5)
+                if not self.screen.live:
+                    raise BlindError("lost the device screen after action")
+                changed = vision.changed(before, self.screen.frame, ignore=tuple(_pointer_path(command)))
+                self._record(before, **command, changed=changed, act_s=round(time.monotonic() - started, 2))
+                if require_change and not changed:
+                    raise RuntimeError("expected screen change missing; return to the remote agent")
+            self._record(action="done",
+                         answer="Workflow actions executed. Inspect the final screen to verify the goal.")
+        except asyncio.CancelledError:
+            self._record(action="stopped")
+            raise
+        except Exception as e:
+            self._record(action="fail", reason=str(e)[:300])
 
     def run_info(self, run_id: str | None = None) -> dict:
         if run_id is not None and run_id != self.run_id:
@@ -202,7 +231,8 @@ class Agent:
             "done": "succeeded", "fail": "failed", "error": "failed", "stopped": "cancelled",
         }.get(last.get("action"), "cancelled" if self.run_id else "idle")
         return {"id": self.run_id, "state": state, "goal": self.task, "plan": self.plan,
-                "source": self.source, "owner": self.owner, "max_steps": self.max_steps, "rounds": self.rounds,
+                "engine": self.engine, "source": self.source, "owner": self.owner,
+                "max_steps": self.max_steps, "rounds": self.rounds,
                 "started_at": self.started_at, "finished_at": self.finished_at,
                 "result": last.get("answer"), "error": last.get("reason"), "steps": deepcopy(self.steps)}
 

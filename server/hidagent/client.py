@@ -39,6 +39,20 @@ class IPhoneClient:
     def status(self) -> dict:
         return self.request("GET", "/api/status").json()
 
+    def capabilities(self) -> dict:
+        return self.request("GET", "/api/capabilities").json()
+
+    def workflows(self) -> list:
+        return self.request("GET", "/api/workflows").json()
+
+    def workflow(self, name=None, recipe=None, timeout_s=60) -> dict:
+        return self.request("POST", "/api/workflows/run", {
+            "name": name, "recipe": recipe, "timeout_s": timeout_s,
+        }).json()
+
+    def route(self, goal: str, context: str) -> dict:
+        return self.request("POST", "/api/workflows/route", {"goal": goal, "context": context}).json()
+
     def screenshot(self) -> bytes:
         return self.request("GET", "/api/frame.jpg").content
 

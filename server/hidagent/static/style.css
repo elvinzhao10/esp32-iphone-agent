@@ -14,6 +14,53 @@
   --tap: #ff5149;
   --shadow: 0 12px 40px #223c3b08;
 }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #10191c;
+  --surface: #19262a;
+  --fg: #e0eeed;
+  --muted: #a0b9b9;
+  --line: #34484b;
+  --soft: #203136;
+  --accent: #6bd2bd;
+  --accent-soft: #25483f;
+  --mark: #ffaba6;
+  --ok: #85d9b1;
+  --shadow: 0 12px 40px #0003;
+}
+:root[data-theme="dark"] button.danger {
+  background: #412c30;
+  border-color: #81545a;
+}
+:root[data-theme="dark"] button.primary {
+  color: #102620;
+}
+:root[data-theme="dark"] .notice {
+  background: #3a3222;
+  color: #ebcf94 !important;
+}
+:root[data-theme="dark"] .integration {
+  background: var(--soft);
+}
+:root[data-theme="dark"] .badge {
+  background: var(--soft);
+  border-color: var(--line);
+  color: var(--fg);
+}
+.recipe-panel {
+  padding: 12px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+}
+.recipe-panel select {
+  min-width: 0;
+  flex: 1;
+  padding: 9px;
+  background: var(--surface);
+  color: var(--fg);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
 * {
   box-sizing: border-box;
 }
@@ -198,7 +245,7 @@ small,
   align-items: center;
   justify-content: space-between;
   padding: 13px 32px;
-  background: #eaf1ef;
+  background: var(--soft);
   border-bottom: 1px solid var(--line);
   min-height: 64px;
   font-size: 12px;
@@ -282,7 +329,8 @@ main {
   position: relative;
   width: min(100%, 294px);
   aspect-ratio: 498/1080;
-  border: 7px solid #233c3d;
+  border: 0;
+  box-shadow: 0 0 0 7px #233c3d;
   border-radius: 32px;
   overflow: hidden;
   background: #eaf0ef;
@@ -570,7 +618,7 @@ main {
   color: #80602b !important;
 }
 .task textarea {
-  background: #fbfcfc;
+  background: var(--surface);
 }
 .task-limits {
   display: flex;
@@ -1004,9 +1052,11 @@ dialog p {
     gap: 10px;
   }
   .screen {
-    height: min(calc(100vh - 345px), 635px);
-    min-height: 280px;
-    width: auto;
+    height: auto;
+    width: min(
+      100%,
+      calc(clamp(280px, 100vh - 345px, 635px) * var(--device-aspect, 0.461))
+    );
     max-width: 100%;
   }
 }

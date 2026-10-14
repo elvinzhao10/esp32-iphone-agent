@@ -18,6 +18,7 @@
         ><span class="network">Private connection</span>
       </div>
       <div class="bar-actions">
+        <button id="theme" aria-label="Color theme">Theme: system</button>
         <button class="motion" id="motion"></button>
         <div class="lang" id="lang">
           <button data-lang="en">EN</button><button data-lang="zh">中文</button>
@@ -37,13 +38,13 @@
       </div>
     </div>
     <main>
-      <section class="phone-panel" aria-label="Live iPhone">
+      <section class="phone-panel" aria-label="Live iOS device">
         <div class="section-title">
           <h2>Live device</h2>
           <span id="frame-state">Waiting for video</span>
         </div>
         <div class="screen">
-          <img id="live" alt="Live mirrored iPhone screen" draggable="false" />
+          <img id="live" alt="Live mirrored device screen" draggable="false" />
           <div class="hint" id="hint" data-i18n="waiting"></div>
           <span id="input-lock" class="input-lock" hidden>View only</span>
         </div>
@@ -74,7 +75,7 @@
       <section class="workspace">
         <div class="workspace-heading">
           <div>
-            <span class="eyebrow">ONE PHONE. ONE CONTROLLER.</span>
+            <span class="eyebrow">ONE DEVICE. ONE CONTROLLER.</span>
             <h1>Your phone, working with you.</h1>
             <p>Control it yourself, connect your agent, or hand off a task.</p>
           </div>
@@ -101,7 +102,7 @@
           </button>
           <button data-panel="external" class="mode-card">
             <span class="mode-icon">⌘</span><b>External agent</b
-            ><span>Let Codex or another agent use the phone.</span>
+            ><span>Connect any MCP agent or HTTP client.</span>
           </button>
           <button data-panel="local" class="mode-card">
             <span class="mode-icon">✦</span><b>Local agent</b
@@ -153,11 +154,22 @@
             <div>
               <h2>Delegate the steps. Keep the oversight.</h2>
               <p>
-                The planner makes a plan; the actor operates the phone and
-                checks the result.
+                Run a small recipe without model calls, or use the optional
+                vision agent for unfamiliar tasks.
               </p>
             </div>
             <span id="model-health" class="badge">Checking models</span>
+          </div>
+          <div class="recipe-panel">
+            <label for="workflow-name">Quick workflow · no model needed</label>
+            <div class="row">
+              <select id="workflow-name" aria-label="Saved workflow">
+                <option value="">No workflows configured</option></select
+              ><button id="run-workflow">Run workflow</button>
+            </div>
+            <p id="workflow-precondition" class="muted">
+              Configure WORKFLOWS_FILE on this host to add reusable recipes.
+            </p>
           </div>
           <div class="models">
             <div>

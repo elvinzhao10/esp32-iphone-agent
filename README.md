@@ -280,3 +280,14 @@ Other routes: WebDriverAgent/XCUITest-based tools such as [mobile-mcp](https://g
 ## License
 
 [MIT](LICENSE)
+
+### Portable interaction host
+
+Use a Raspberry Pi, Mac, or Linux computer, with a remote agent or one running on
+the same machine. The MCP bridge is agent-independent; REST/OpenAPI and the JSON
+CLI expose the same controls. Finite recipes execute up to 32 actions without
+model calls or persistent conversation memory. Optional Jev routing chooses known
+recipes from observed text context; the vision agent remains optional for unfamiliar
+tasks. The dashboard includes System/Light/Dark themes and follows live device
+aspect ratios. iPad profiles are experimental and require separate calibration.
+See [portable hosts, workflows, Jev, and device profiles](docs/remote-agents.md#portable-device-host-and-lightweight-execution).

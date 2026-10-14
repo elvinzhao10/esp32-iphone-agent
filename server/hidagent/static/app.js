@@ -1,6 +1,67 @@
 // Control page: live phone, bilingual live log, and a wall of step screenshots.
 const $ = (id) => document.getElementById(id);
 
+// Theme follows the OS unless the user selects light or dark.
+let theme = "system";
+try {
+  theme = localStorage.getItem("theme") || "system";
+} catch {}
+const systemTheme = matchMedia("(prefers-color-scheme: dark)");
+function applyTheme() {
+  document.documentElement.dataset.theme =
+    theme === "system" ? (systemTheme.matches ? "dark" : "light") : theme;
+  $("theme").textContent = `Theme: ${theme}`;
+}
+$("theme").onclick = () => {
+  theme = { system: "dark", dark: "light", light: "system" }[theme] || "system";
+  try {
+    localStorage.setItem("theme", theme);
+  } catch {}
+  applyTheme();
+};
+systemTheme.addEventListener("change", applyTheme);
+applyTheme();
+let recipes = [];
+async function loadWorkflows() {
+  try {
+    const response = await fetch("/api/workflows");
+    if (!response.ok)
+      throw new Error("Cannot load workflows; check the host configuration.");
+    recipes = await response.json();
+    $("workflow-name").replaceChildren(
+      ...recipes.map((r) => {
+        const option = document.createElement("option");
+        option.value = r.name;
+        option.textContent = r.name;
+        return option;
+      }),
+    );
+    if (!recipes.length) {
+      const option = document.createElement("option");
+      option.textContent = "No workflows configured";
+      option.value = "";
+      $("workflow-name").append(option);
+    }
+    $("workflow-name").onchange();
+  } catch (e) {
+    $("workflow-precondition").textContent = e.message;
+  }
+}
+$("workflow-name").onchange = () => {
+  const recipe = recipes.find((r) => r.name === $("workflow-name").value);
+  $("workflow-precondition").textContent = recipe
+    ? `Start only when: ${recipe.precondition}`
+    : "Configure WORKFLOWS_FILE on this host to add reusable recipes.";
+};
+$("run-workflow").onclick = async () => {
+  try {
+    await post("/api/workflows/run", { name: $("workflow-name").value });
+  } catch (e) {
+    $("msg").textContent = e.message;
+  }
+};
+loadWorkflows();
+
 // ---- language ------------------------------------------------------------------------
 
 let lang = "en";
@@ -106,7 +167,8 @@ async function post(path, body) {
           : "Check the input values.") || r.statusText;
     return r.ok ? data : null;
   } catch {
-    $("msg").textContent = "Connection lost. Check Tailscale and the Pi.";
+    $("msg").textContent =
+      "Connection lost. Check the connection to this host.";
     return null;
   }
 }
@@ -475,7 +537,7 @@ function renderRun(a, available = []) {
   if (!a.id) return;
   $("current-goal").textContent = a.goal || a.task;
   $("task-origin").textContent =
-    `${a.source === "external" ? "DELEGATED" : "LOCAL AGENT"} · ${a.owner || "Dashboard"} · ${a.id.slice(0, 8)}`;
+    `${a.engine === "workflow" ? "FINITE WORKFLOW" : a.source === "external" ? "DELEGATED VISION" : "LOCAL VISION"} · ${a.owner || "Dashboard"} · ${a.id.slice(0, 8)}`;
   $("st-state").textContent =
     {
       running: "Working",
@@ -587,7 +649,7 @@ async function poll() {
     if (!response.ok) throw new Error("status unavailable");
     const s = await response.json();
     latest = s;
-    $("server-state").textContent = "Pi connected";
+    $("server-state").textContent = "Host connected";
     $("server-dot").classList.add("on");
     const c = s.control,
       a = s.agent,
@@ -666,8 +728,19 @@ async function poll() {
       : "Model setup needed";
     $("model-warning").hidden = s.configuration.model_ready;
     $("model-warning").textContent =
-      "Configure the model endpoint, model name, and API key in server/.env on the Pi, then restart the service. External direct control uses its own model.";
+      "Configure the model endpoint, model name, and API key in server/.env on this host, then restart the service. External direct control uses its own model.";
     aspect = s.aspect || aspect;
+    document.querySelector(".screen").style.aspectRatio = String(aspect);
+    document
+      .querySelector(".screen")
+      .style.setProperty("--device-aspect", String(aspect));
+    $("run-workflow").disabled =
+      !s.device ||
+      !s.screen ||
+      !s.calibrated ||
+      a.running ||
+      !inputAllowed ||
+      !recipes.length;
     if (!viewedRun || viewedRun.id === a.id)
       renderRun({ ...a, goal: a.task }, a.available_shots || []);
     const events = (s.activity || []).map((e) => ({

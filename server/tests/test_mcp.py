@@ -66,7 +66,8 @@ def test_stdio_bridge_delivers_images_and_task_results():
         async with stdio_client(params) as (reader, writer), ClientSession(reader, writer) as session:
             await session.initialize()
             tools = {tool.name for tool in (await session.list_tools()).tools}
-            assert {"iphone_tap", "iphone_screenshot", "delegate_task", "task_status", "stop_task"} <= tools
+            assert {"iphone_tap", "iphone_screenshot", "delegate_task", "task_status", "stop_task",
+                    "device_capabilities", "list_workflows", "run_workflow", "route_workflow"} <= tools
             status = await session.call_tool("iphone_status", {})
             assert not status.isError
             shot = await session.call_tool("iphone_screenshot", {})
@@ -82,6 +83,9 @@ def test_stdio_bridge_delivers_images_and_task_results():
             delegated = await session.call_tool("delegate_task", {"goal": "Open Settings"})
             assert not delegated.isError
             assert task_id in delegated.content[0].text
+            workflow = await session.call_tool("run_workflow", {"name": "known-recipe", "timeout_s": 30})
+            assert not workflow.isError
+            assert task_id in workflow.content[0].text
             result = await session.call_tool("task_status", {"task_id": task_id})
             assert "succeeded" in result.content[0].text
             invalid = await session.call_tool("task_status", {"task_id": "../status"})
@@ -92,6 +96,7 @@ def test_stdio_bridge_delivers_images_and_task_results():
         assert seen == [
             ("/api/control/action", {"action": "tap", "arguments": {"x": .5, "y": .4, "precise": True}}),
             ("/api/tasks", {"goal": "Open Settings", "max_steps": 40, "timeout_s": 600}),
+            ("/api/workflows/run", {"name": "known-recipe", "recipe": None, "timeout_s": 30}),
         ]
     finally:
         backend.shutdown()

@@ -1,7 +1,7 @@
 # Remote agents and task delegation
 
-Use the Pi as an iPhone tool server. A powerful agent can run on your laptop or
-another machine; the Pi keeps the AirPlay receiver, calibration, and USB bridge.
+Use a Raspberry Pi, Mac, or Linux computer as an iOS device host. A powerful agent
+can run on the same computer or another machine; the host handles AirPlay, calibration, and the USB bridge.
 There is no extra always-on agent framework or local model on the Pi.
 
 Two modes share the existing web/API port:
@@ -241,3 +241,111 @@ For delegation, call `delegate_task`, retain its ID, and poll `task_status`.
 status tools are marked read-only in MCP metadata. All 16 tools use the same
 Tailscale-bound API. No additional model API key is needed for Codex's direct
 control; delegated/local tasks still require the Pi's model configuration.
+
+## Portable device host and lightweight execution
+
+The device host can be a Raspberry Pi, Linux desktop, or the same Mac running your
+agent. UxPlay and the Python server belong on that host; the ESP32 firmware must
+point to that host's LAN IP. The board remains plugged into the controlled iPhone
+or iPad. Moving the server requires updating the firmware's server address.
+Use `http://127.0.0.1:8890` for a same-computer client; use a private Tailscale address
+for another computer. Installation is the same [server quick start](../README.md#2-install-and-start-the-server).
+Windows hosting is not validated. Each server instance controls one device.
+
+The preferred local layer is a **finite workflow executor**. It runs only validated
+HID actions, keeps bounded task results in RAM, and has no persistent conversation
+memory, shell tools, scheduler, or embedded model. Calibration and configured recipes
+are the only normal persistent state. Leave `HIDAGENT_DEBUG=0` to avoid disk traces.
+The existing vision planner/actor is optional for tasks that need screen reasoning.
+
+A remote agent can use any of these paths:
+
+| Path | Who decides | Host model key |
+| --- | --- | --- |
+| Direct actions | Remote agent inspects each resulting image | None |
+| Finite workflow | Remote agent verifies starting screen; host runs known steps | None |
+| Jev routing + workflow | Jev picks a known recipe from text context; caller approves execution | TypeSafe key |
+| Vision task | Optional planner/actor observes and handles unfamiliar screens | Vision API key |
+
+MCP already works with any compliant **stdio** client, including agents outside
+Codex. The JSON configuration above is a common host format; use your host's own
+registration mechanism. MCP is optional: generic tool callers can read
+`GET /api/capabilities` and `/openapi.json` and use the same REST API or JSON CLI.
+The bridge runs on any controlling computer; no extra MCP runtime is needed on a Pi.
+New MCP tools are `device_capabilities`, `list_workflows`, `run_workflow`, and
+`route_workflow`, alongside the existing observation, control, and task tools.
+No vendor agent framework is required.
+
+## Finite workflows
+
+Copy [examples/workflows.json](../examples/workflows.json), customize it for your
+starting screen, and set `WORKFLOWS_FILE=/absolute/path/to/workflows.json` on the
+host. Recipes are re-read when requested. The dashboard's local panel lists them
+and shows their preconditions; they run without a model key.
+
+```sh
+iphone-agent capabilities
+iphone-agent workflows
+iphone-agent workflow --name type-focused-search --timeout 30 --wait
+# Or submit one recipe JSON object without saving it on the host:
+iphone-agent workflow --file recipe.json --wait
+```
+
+`POST /api/workflows/run` accepts exactly one of `name` or `recipe`, plus
+`timeout_s` (default 60, max 300). It returns a task ID for the existing
+`/api/tasks/{id}` polling/cancellation endpoints. Inline recipes and saved recipes
+use the same schema: `name`, `description`, `precondition`, `steps`.
+Each step has `action`, `arguments`, and optional `require_change`.
+Supported actions: tap, swipe, path, circle, type, key, home, back, wait. Coordinates
+are 0–1 fractions; keyboard `key` uses `combo`, e.g. `{"combo":"enter"}`.
+Up to 32 actions, no loops or arbitrary code. Tap precision defaults to true.
+
+Observe first and verify the recipe's starting screen. Only batch actions whose
+next steps do not require new visual interpretation. The runner waits briefly after
+each action, stops on screen loss, and honors takeover/cancellation/deadlines.
+`require_change:true` stops if an expected visual change is absent; a visual change
+is **not** semantic verification. A completed workflow means its actions executed,
+not that the user's goal was proved. Inspect the final observation before continuing.
+Unexpected screens go back to the remote agent. Results expose `engine:workflow`
+versus `engine:vision` in the same dashboard and task API.
+
+## Optional Jev router
+
+This integration calls TypeSafe's documented [System One HTTP API](https://docs.typesafe.ai/api)
+using existing httpx, with no extra SDK or local weights. Set `TYPESAFE_API_KEY`,
+optionally `JEV_MODEL=jev-latest` and `JEV_MIN_CONFIDENCE=0.9`, and configure recipes.
+
+```sh
+iphone-agent route 'Search for Settings' 'The empty search field is focused; keyboard visible'
+```
+
+`POST /api/workflows/route` / MCP `route_workflow` takes `goal` and `context`.
+It sends those texts and recipe descriptions/preconditions to TypeSafe and returns
+`workflow`, `confidence`, and `needs_remote`. It never executes a recipe. Low
+confidence, no match, invalid answers, or unavailable service cause escalation or
+an explicit error, with no device input. The caller observes, checks the decision,
+and explicitly calls `run_workflow` if appropriate.
+
+Jev chooses among predefined options; it does not generate coordinates or plans.
+The current integration is text-only, not a screenshot interpreter. Screen context
+comes from the caller's observation; no local OCR/vision inference is added.
+See [TypeSafe state formats](https://docs.typesafe.ai/concepts/state) and
+[Choice](https://docs.typesafe.ai/primitives/choice). Directly choosing a known
+recipe avoids even the router request. This should remove repeated large-model
+round trips for known sequences; actual latency and task accuracy need measurement
+on your workflows. No speedup benchmark is claimed.
+
+## iPad and device profiles
+
+Set `DEVICE_KIND=ipad`, `DEVICE_NAME='My iPad'`, and optionally `AIRPLAY_NAME`.
+`/api/capabilities` exposes this profile; screenshots retain their actual dimensions
+and the dashboard follows the live aspect ratio instead of forcing a phone frame.
+The HID/AirPlay path is reusable, but **iPad hardware support is experimental**:
+verify adapter/power, AssistiveTouch pointer, mirroring, and Home/Back behavior.
+Recalibrate per device and after rotation; recipes with coordinates are specific to
+a layout. Keep separate `HIDAGENT_DATA` directories when switching profiles so a
+phone's calibration is not reused for a tablet. Android and other capture/input
+backends are not implemented. The profile is discovery metadata, not a new driver.
+
+The dashboard offers System/Light/Dark themes, follows OS changes in System mode,
+and saves the user's theme choice locally.

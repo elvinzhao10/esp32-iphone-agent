@@ -167,7 +167,7 @@ async def status():
             "debug": DEBUG, "trace": str(agent.trace.dir or ""), "aspect": round(screen.aspect, 4),
             "models": {"planner": agent.planner.model, "actor": agent.actor.model},
             "agent": {"running": agent.running, "task": agent.task, "steps": agent.steps,
-                      "id": agent.run_id, "state": run["state"], "source": agent.source,
+                      "id": agent.run_id, "engine": agent.engine, "state": run["state"], "source": agent.source,
                       "owner": agent.owner, "max_steps": agent.max_steps, "rounds": agent.rounds,
                       "started_at": agent.started_at, "finished_at": agent.finished_at,
                       "result": run["result"], "error": run["error"],
@@ -424,3 +424,74 @@ async def list_tasks():
     if agent.run_id:
         runs.append(agent.run_info())
     return [{k: v for k, v in run.items() if k != "steps"} for run in reversed(runs)]
+
+
+@app.get("/api/capabilities")
+def capabilities():
+    """Host-independent discovery for MCP, REST, and CLI clients."""
+    return {"protocol_version": "1", "device": {"kind": os.environ.get("DEVICE_KIND", "iphone"),
+            "name": os.environ.get("DEVICE_NAME", screen.name if hasattr(screen, "name") else "iOS device"),
+            "transport": "esp32-usb-hid", "screen": "airplay", "coordinates": "normalized_0_1",
+            "ipad": "experimental; calibrate separately; gestures/layout differ"},
+            "interaction": ["manual", "direct", "workflow", "vision_task"],
+            "interfaces": {"mcp": "stdio bridge on any client host", "rest": "/openapi.json", "cli": "iphone-agent"},
+            "workflow": {"max_steps": 32, "persistent_memory": False,
+                         "jev_ready": bool(os.environ.get("TYPESAFE_API_KEY"))},
+            "limitations": ["ASCII keyboard input", "one device per server instance",
+                            "trusted private network required"]}
+
+
+@app.get("/api/workflows")
+def workflows_list():
+    from .workflows import catalog
+    try:
+        return [r.model_dump() for r in catalog().values()]
+    except (ValueError, OSError) as e:
+        raise HTTPException(409, str(e)) from e
+
+
+class WorkflowRequest(BaseModel):
+    name: str | None = Field(default=None, max_length=80)
+    recipe: dict | None = None
+    timeout_s: float = Field(default=60, ge=1, le=300, allow_inf_nan=False)
+
+
+@app.post("/api/workflows/run", status_code=202)
+async def workflow_start(body: WorkflowRequest, request: Request):
+    from .workflows import Recipe, catalog
+    if (body.name is None) == (body.recipe is None):
+        raise HTTPException(422, "provide exactly one of name or recipe")
+    try:
+        recipe = Recipe.model_validate(body.recipe) if body.recipe is not None else catalog()[body.name]
+        recipe.commands()
+    except KeyError as e:
+        raise HTTPException(404, "unknown workflow") from e
+    except (ValueError, OSError) as e:
+        raise HTTPException(422, str(e)) from e
+    try:
+        async with control(request, claim=False):
+            _, owner, source = identity(request)
+            run_id = agent.start(recipe.description, len(recipe.steps), body.timeout_s,
+                                 source=source, owner=owner, workflow=recipe)
+            ownership.release()
+            ownership.record("workflow", owner, recipe.name)
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from e
+    return {"id": run_id, "state": "running", "engine": "workflow", "status_url": f"/api/tasks/{run_id}"}
+
+
+class RouteRequest(BaseModel):
+    goal: str = Field(min_length=1, max_length=4000)
+    context: str = Field(min_length=1, max_length=4000)
+
+
+@app.post("/api/workflows/route")
+async def workflow_route(body: RouteRequest):
+    """Optional text-only Jev selection. This endpoint never moves the device."""
+    from .workflows import catalog, route
+    try:
+        return await route(body.goal, body.context, catalog())
+    except (RuntimeError, ValueError, OSError) as e:
+        raise HTTPException(409, str(e)) from e
+    except Exception as e:
+        raise HTTPException(502, "Jev routing unavailable; use the remote agent") from e
