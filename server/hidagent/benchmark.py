@@ -16,6 +16,7 @@ import httpx
 from .client import IPhoneClient
 from .llm import LLM
 from .settings import load_settings
+from .workflows import catalog, route
 
 GOAL = "Replace the already focused Spotlight search query with Calendar. Do not open a result or submit."
 CONTEXT = "Spotlight search field is visibly focused with its on-screen keyboard showing."
@@ -30,6 +31,7 @@ async def run(args):
     verifier = LLM(provider.base_url, provider.model, provider.api_key)
     verifier._http.timeout = httpx.Timeout(30)
     rows = []
+    router = httpx.AsyncClient(timeout=8, trust_env=False)
     client_id = "benchmark:control"
     with IPhoneClient(args.url, client_id=client_id, name="Control trials") as client:
         state = client.status()
@@ -70,7 +72,10 @@ async def run(args):
                             job = client.workflow(recipe=RECIPE, timeout_s=30)
                             row["state"] = client.wait(job["id"], 40, .1)["state"]
                         elif mode == "jev":
-                            job = client.dispatch(GOAL, CONTEXT)
+                            job = await route(GOAL, CONTEXT, catalog(), client=router)
+                            job["state"] = "needs_remote" if job["needs_remote"] else "selected"
+                            if job["workflow"]:
+                                job.update(client.workflow(name=job["workflow"], timeout_s=30))
                             row.update({k: v for k, v in job.items() if k in (
                                 "route_ms", "confidence", "eligibility", "workflow", "state")})
                             if job.get("id"):
@@ -119,6 +124,7 @@ async def run(args):
                     client.release()
             finally:
                 await verifier._http.aclose()
+                await router.aclose()
 
 
 def main():

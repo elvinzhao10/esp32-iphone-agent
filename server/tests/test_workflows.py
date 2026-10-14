@@ -16,7 +16,9 @@ def test_jev_routes_only_known_recipes_and_escalates(monkeypatch):
     def respond(request):
         body = json.loads(request.content)
         assert body["model"] == "jev-latest"
-        assert body["state"] == {"goal": "Search", "observed_context": "Home screen visible"}
+        assert body["state"]["goal"] == "Search"
+        assert body["state"]["observed_context"] == "Home screen visible"
+        assert "search" in body["state"]["workflows"]
         assert "escalate" in body["questions"]["workflow"]["criteria"]
         assert "Authorization" in request.headers
         return httpx.Response(200, json={"answers": {"workflow": {
