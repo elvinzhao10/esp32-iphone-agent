@@ -134,6 +134,9 @@ Type a goal (for example *"Open Settings and go to Wi-Fi"*) and press **Start**,
 
 ## Configuration
 
+External agents can use the optional [CLI and MCP bridge](docs/remote-agents.md)
+to control this legacy server. Direct controls require no model credentials.
+
 Set in `server/.env` (see [`.env.example`](server/.env.example)):
 
 | Variable | Default | Meaning |
