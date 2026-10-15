@@ -28,6 +28,10 @@ def parser() -> argparse.ArgumentParser:
     calibration = sub.add_parser("calibrate")
     calibration.add_argument("--pointer", nargs=2, type=float, metavar=("X", "Y"))
     sub.add_parser("task").add_argument("goal")
+    edit = sub.add_parser("edit", help="edit a visibly focused field without an intermediate observation")
+    edit.add_argument("text")
+    edit.add_argument("--replace", action="store_true")
+    edit.add_argument("--submit", action="store_true")
     return root
 
 
@@ -48,6 +52,7 @@ def main(argv=None) -> int:
                 case "swipe": result = client.action("swipe", x1=args.x1, y1=args.y1, x2=args.x2, y2=args.y2)
                 case "scroll": result = client.action("scroll", x=args.x, y=args.y, lines=args.lines)
                 case "type" | "key": result = client.action(args.command, text=args.text)
+                case "edit": result = client.edit_text(args.text, replace=args.replace, submit=args.submit)
                 case "home" | "back": result = client.action(args.command)
                 case "calibrate": result = client.calibrate(*(args.pointer or []))
                 case "task": result = client.delegate(args.goal)

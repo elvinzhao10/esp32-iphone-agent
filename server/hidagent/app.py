@@ -8,7 +8,7 @@ from pathlib import Path
 from fastapi import FastAPI, HTTPException, Response
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 
 from .agent import Agent
 from .debug import Trace
@@ -74,6 +74,11 @@ class Text(BaseModel):
 
 class KeyboardText(Text):
     text: str = Field(min_length=1, max_length=4000)
+
+
+class EditText(KeyboardText):
+    replace: StrictBool = False
+    submit: StrictBool = False
 
 
 def check_keyboard(text):
@@ -145,6 +150,12 @@ async def scroll(s: Scroll):
 async def type_text(t: KeyboardText):
     check_keyboard(t.text)
     return await act(lambda: phone.type(t.text))
+
+
+@app.post("/api/edit_text")
+async def edit_text(t: EditText):
+    check_keyboard(t.text)
+    return await act(lambda: phone.edit_text(t.text, replace=t.replace, submit=t.submit))
 
 
 @app.post("/api/key")

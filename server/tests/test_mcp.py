@@ -52,6 +52,7 @@ def test_real_stdio_bridge_returns_images_and_forwards_legacy_actions():
             assert not image.isError
             assert image.content[0].type == "image" and image.content[0].mimeType == "image/jpeg"
             for name, arguments in [("iphone_key", {"combo": "cmd+a"}),
+                                    ("iphone_edit_text", {"text": "Calendar", "replace": True}),
                                     ("delegate_task", {"goal": "Open Clock"}), ("stop_task", {})]:
                 assert not (await session.call_tool(name, arguments)).isError
             status = await session.call_tool("task_status", {})
@@ -63,5 +64,7 @@ def test_real_stdio_bridge_returns_images_and_forwards_legacy_actions():
         server.shutdown()
         server.server_close()
         thread.join(timeout=2)
-    assert requests == [("/api/key", {"text": "cmd+a"}), ("/api/agent", {"text": "Open Clock"}),
+    assert requests == [("/api/key", {"text": "cmd+a"}),
+                        ("/api/edit_text", {"text": "Calendar", "replace": True, "submit": False}),
+                        ("/api/agent", {"text": "Open Clock"}),
                         ("/api/agent/stop", None)]

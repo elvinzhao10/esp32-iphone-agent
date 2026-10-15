@@ -56,5 +56,65 @@ Do not start another action until the previous one has returned. Calibration
 returns `auto: false` when the user must locate the pointer; finish with both
 coordinates, e.g. `iphone-agent calibrate --pointer 0.5 0.4`.
 
-The bridge forwards existing controls; it does not add autonomous strategies,
-change prompts or firmware, or establish new hardware/performance results.
+The bridge forwards existing controls. The typing guidance below is also included
+in the actor prompt; no firmware or autonomous strategy changes are required.
+No new hardware/performance results are established by the bridge.
+
+## Type with the phone's keyboard
+
+Click a visibly focused field in the preview, then type with a physical keyboard.
+Only the focused preview captures keys; the task and manual input fields remain
+normal browser inputs. Escape releases preview focus and invokes the existing
+emergency stop. Input is ordered with taps and shortcuts, and unsent input is
+dropped on focus loss, a failed request or Stop rather than replayed later.
+
+The browser forwards US HID key positions, and iOS applies the selected hardware
+keyboard layout and input method. ASCII describes the wire encoding, not the
+language of the resulting text. Host IME commits are not also sent to the phone.
+Host Unicode paste, software-keyboard composition and extra JIS/ISO-specific
+keys are not supported by this route.
+
+Enable the desired keyboards in Settings → General → Keyboard → Keyboards, and
+check their Hardware Keyboard layouts. Switch languages by clicking the actual
+globe key on the iPhone's on-screen keyboard through the preview. Agents use
+`iphone_tap` on the visible key in the same way. There is no separate browser
+language-switch button or language selector.
+
+An attached hardware keyboard can hide the on-screen keyboard. Use the phone's
+visible keyboard controls to show it before looking for the globe key; its
+position is not fixed or inferred. Inspect the selected keyboard/candidates after
+switching. `iphone-agent key ctrl+space` or `iphone_key(combo="ctrl+space")` remains
+an optional fallback when needed, not a requirement for the normal GUI path.
+See Apple's [keyboard switching](https://support.apple.com/guide/iphone/iph5948b3f2e/ios)
+and [hardware layout](https://support.apple.com/guide/iphone/iph3814bb7d5/ios) guides.
+
+The same input path is intended for Chinese Pinyin, Japanese Romaji and Korean
+2-set; it does not contain a separate language whitelist or host transliterator.
+Example sequences to check with those keyboards selected are `nihao`,
+`konnichiha` and `dkssudgktpdy`. Agents send those keystrokes with `iphone_type`,
+observe the candidates/composition, and then choose Space, an arrow, Enter or a
+visible candidate as appropriate. Enter may commit or submit depending on the
+app and IME state; do not send it blindly. The tool does not read the active
+language directly or convert arbitrary Unicode strings into keystrokes.
+
+Software tests cover key positions with Chinese/Japanese/Korean host labels,
+candidate keys, switching and host-IME duplicate suppression. These checks do
+not establish actual language output on a device. Physical acceptance on this
+legacy patch is still required for all three keyboards; earlier Pinyin evidence
+from a different revision/transport is not counted as a new result here.
+
+## Focused-field editing
+
+After observing a focused field, `iphone_edit_text(text="Calendar", replace=true)`
+selects all and types in one request. The CLI equivalent is
+`iphone-agent edit Calendar --replace`; REST uses `POST /api/edit_text` with
+`{"text":"Calendar","replace":true,"submit":false}`. `submit` defaults to false;
+only set it (or `--submit`) when pressing Enter is part of the requested task.
+Trailing and all-space text uses existing `key space` commands because legacy
+firmware trims protocol lines. No firmware update is required.
+
+The combined edit avoids a client round trip between select-all and typing. It
+does not inspect focus, make the HID commands transactional, or guarantee their
+visible result. It shares the direct-action lock and refuses an active agent
+run. Observe afterward. Capture/settling behavior is unchanged; there is no new
+hardware latency benchmark for this endpoint.

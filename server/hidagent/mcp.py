@@ -15,6 +15,10 @@ def create_server(url: str | None = None):
         "Do not mix direct controls with a delegated task. There is one current task, no task IDs or ownership leases. "
         "Poll task_status until running is false and inspect the steps and screen. "
         "stop_task is the emergency stop; it releases and re-homes the pointer. "
+        "Typing uses the selected iOS hardware keyboard/input method; it is not Unicode injection. "
+        "Switch languages by tapping the visible globe key in the phone's keyboard and observing the result. "
+        "Use visible iOS controls to show a hidden keyboard; never guess the globe key's position. "
+        "iphone_key ctrl+space is an optional fallback, not a required browser control. "
         "Only act on the user's requested device task."))
 
     @mcp.tool()
@@ -49,15 +53,32 @@ def create_server(url: str | None = None):
 
     @mcp.tool()
     def iphone_type(text: str) -> dict:
-        """Type printable ASCII into a visibly focused field, without submitting."""
+        """Send printable ASCII keystrokes to a focused field using the phone's active keyboard/IME.
+
+        For example, Pinyin nihao can show Chinese candidates; inspect before committing with Space.
+        Japanese Romaji and Korean use their own enabled keyboard/layout. No automatic language detection
+        or Unicode injection. Tap the phone's visible globe key to switch keyboards, then observe.
+        """
         with IPhoneClient(url) as client:
             return client.action("type", text=text)
 
     @mcp.tool()
     def iphone_key(combo: str) -> dict:
-        """Press a keyboard combination, such as cmd+a or enter."""
+        """Press a keyboard combination: cmd+a, enter, space to commit a candidate, or ctrl+space to cycle keyboards.
+
+        Switching requires the keyboards to be enabled on iOS; observe the resulting language/candidates.
+        """
         with IPhoneClient(url) as client:
             return client.action("key", text=combo)
+
+    @mcp.tool()
+    def iphone_edit_text(text: str, replace: bool = False, submit: bool = False) -> dict:
+        """Edit a visibly focused field in one request. replace selects all; submit explicitly presses Enter.
+
+        Text is printable ASCII. No intermediate screen observation; inspect the result afterward.
+        """
+        with IPhoneClient(url) as client:
+            return client.edit_text(text, replace=replace, submit=submit)
 
     @mcp.tool()
     def iphone_home() -> dict:

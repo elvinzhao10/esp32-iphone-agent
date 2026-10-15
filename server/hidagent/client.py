@@ -42,6 +42,9 @@ class IPhoneClient:
             raise ValueError("provide both pointer coordinates")
         return self.request("POST", "/api/calibrate/finish", {"x": x, "y": y}).json()
 
+    def edit_text(self, text: str, replace: bool = False, submit: bool = False) -> dict:
+        return self.request("POST", "/api/edit_text", {"text": text, "replace": replace, "submit": submit}).json()
+
     def delegate(self, goal: str) -> dict:
         return self.request("POST", "/api/agent", {"text": goal}).json()
 

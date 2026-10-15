@@ -147,3 +147,49 @@ def test_invalid_remote_input_is_rejected_before_hid(api, path, body):
         assert not calls
 
     asyncio.run(scenario())
+
+
+@pytest.mark.parametrize("body", [
+    {"text": "Clock", "submit": "true"}, {"text": "Clock", "replace": 1}, {"text": "Clock\nhome"},
+])
+def test_edit_rejects_implicit_flags_and_protocol_lines(api, body):
+    module, calls = api
+
+    async def scenario():
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=module.app), base_url="http://legacy") as client:
+            assert (await client.post("/api/edit_text", json=body)).status_code == 422
+        assert not calls
+
+    asyncio.run(scenario())
+
+
+def test_edit_holds_direct_action_lock_between_selection_and_typing(api, tmp_path, monkeypatch):
+    from hidagent.phone import Phone
+
+    module, calls = api
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class Board:
+            links = 0
+            async def send(self, command):
+                calls.append(command)
+                if command == "key cmd+a":
+                    entered.set()
+                    await release.wait()
+
+        monkeypatch.setattr(module, "phone", Phone(Board(), tmp_path / "calibration.json"))
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=module.app), base_url="http://legacy") as client:
+            pending = asyncio.create_task(client.post("/api/edit_text", json={"text": "Calendar", "replace": True}))
+            await entered.wait()
+            for path, body in [("/api/type", {"text": "Other"}), ("/api/agent", {"text": "Open Clock"}),
+                               ("/api/edit_text", {"text": "Other"})]:
+                assert (await client.post(path, json=body)).status_code == 409
+            release.set()
+            assert (await pending).status_code == 200
+            assert calls == ["key cmd+a", "type Calendar"]
+            module.agent.running = True
+            assert (await client.post("/api/edit_text", json={"text": "Other"})).status_code == 409
+
+    asyncio.run(scenario())
